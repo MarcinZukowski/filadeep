@@ -172,39 +172,52 @@ def _marching_tets(g: np.ndarray, i0: np.ndarray, shape: np.ndarray):
     return keys, p + i0
 
 
-def _isosurface_blocks(field, lo: np.ndarray, voxel: float, shape: np.ndarray, active_blocks, block: int):
+def _isosurface_blocks(field, lo: np.ndarray, voxel: float, shape: np.ndarray, active_blocks, block: int, batch_points: int = 4_000_000):
     """Marching tetrahedra over a set of blocks of a virtual grid.
 
     Vertices are identified by the global grid edge they lie on, so blocks
     stitch exactly and the result is watertight (manifold) by construction.
     """
     all_k, all_p = [], []
+    blocks = []
     for b in active_blocks:
         i0 = np.asarray(b) * block
         i1 = np.minimum(i0 + block + 1, shape)  # +1: blocks share a face of samples
-        if np.any(i1 - i0 < 2):
-            continue
+        if np.all(i1 - i0 >= 2):
+            blocks.append((i0, i1))
+
+    def grid_points(i0, i1):
         axes = [lo[k] + voxel * np.arange(i0[k], i1[k]) for k in range(3)]
         X, Y, Z = np.meshgrid(*axes, indexing="ij")
-        g = field(np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=1)).reshape(X.shape)
-        # Outermost grid layer must be "outside" so surfaces close.
-        for k in range(3):
-            if i0[k] == 0:
-                g[(slice(None),) * k + (0,)] = -voxel
-            if i1[k] == shape[k]:
-                g[(slice(None),) * k + (-1,)] = -voxel
-        # Keep values off the iso-level so vertices lie strictly inside edges.
-        # (Before the emptiness check, so neighbouring blocks agree.)
-        eps = 1e-3 * voxel
-        small = np.abs(g) < eps
-        g[small] = np.where(g[small] < 0, -eps, eps)
-        if g.max() <= 0 or g.min() > 0:
-            continue
-        r = _marching_tets(g, i0, shape)
-        if r is None:
-            continue
-        all_k.append(r[0].reshape(-1, 2))
-        all_p.append(r[1].reshape(-1, 3))
+        return np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=1)
+
+    # Evaluate the field for many blocks per call: KD-tree queries spin up
+    # threads per call, so a few big calls beat thousands of small ones.
+    batch = max(1, batch_points // (block + 1) ** 3)
+    for s0 in range(0, len(blocks), batch):
+        chunk = blocks[s0 : s0 + batch]
+        pts = [grid_points(i0, i1) for i0, i1 in chunk]
+        gs = np.split(field(np.concatenate(pts)), np.cumsum([len(p) for p in pts])[:-1])
+        for (i0, i1), g in zip(chunk, gs):
+            g = g.reshape(tuple(i1 - i0))
+            # Outermost grid layer must be "outside" so surfaces close.
+            for k in range(3):
+                if i0[k] == 0:
+                    g[(slice(None),) * k + (0,)] = -voxel
+                if i1[k] == shape[k]:
+                    g[(slice(None),) * k + (-1,)] = -voxel
+            # Keep values off the iso-level so vertices lie strictly inside edges.
+            # (Before the emptiness check, so neighbouring blocks agree.)
+            eps = 1e-3 * voxel
+            small = np.abs(g) < eps
+            g[small] = np.where(g[small] < 0, -eps, eps)
+            if g.max() <= 0 or g.min() > 0:
+                continue
+            r = _marching_tets(g, i0, shape)
+            if r is None:
+                continue
+            all_k.append(r[0].reshape(-1, 2))
+            all_p.append(r[1].reshape(-1, 3))
     if not all_k:
         return None
     k = np.concatenate(all_k)
@@ -275,14 +288,27 @@ def build(
         lo = lo_all - margin
         shape = np.ceil((hi_all + margin - lo) / voxel).astype(int) + 1
 
-        def field(p, tree_f=tree_f, trees=trees, d=d, reach_mm=reach_mm):
+        band_cell = 4 * voxel
+
+        def field(p, tree_f=tree_f, trees=trees, d=d, reach_mm=reach_mm, band_cell=band_cell):
             # Inside plug f: within depth d of f's surface and nearer to it
             # than to any other surface. Toward colors already processed we
             # reach `overlap` further; those get subtracted, so the shared
             # wall comes from the earlier color alone (no gaps, no slivers).
-            df, _ = tree_f.query(p, distance_upper_bound=reach_mm, workers=-1)
             g = np.full(len(p), -voxel, dtype=np.float64)
-            near = np.isfinite(df)
+            # Narrow band: test coarse cells first; a cell whose centre is
+            # farther than reach + half-diagonal can't contain plug points.
+            # (Cells are aligned to absolute coordinates, so every block makes
+            # the same decision for a shared grid point.)
+            cell = np.floor(p / band_cell).astype(np.int64)
+            uc, inv = np.unique(cell, axis=0, return_inverse=True)
+            dc, _ = tree_f.query((uc + 0.5) * band_cell, distance_upper_bound=reach_mm + band_cell * 0.8661, workers=-1)
+            cand = np.isfinite(dc)[inv.ravel()]
+            near = np.zeros(len(p), bool)
+            df = np.full(len(p), np.inf)
+            if cand.any():
+                df[cand], _ = tree_f.query(p[cand], distance_upper_bound=reach_mm, workers=-1)
+                near = np.isfinite(df)
             if near.any():
                 pn, dn = p[near], df[near]
                 gn = d - dn
