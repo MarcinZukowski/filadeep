@@ -249,12 +249,14 @@ def build(
     simplify: float = 0.3,
     overlap: float = 1.0,
     smooth: float = 0.0,
+    primer: tuple[int, float] | None = None,
 ) -> DepthResult:
     """Split a solid (verts/faces, world mm) into per-filament volumes.
 
     sub_tris/sub_fil: painted surface (world mm) and filament per sub-triangle.
     depths: filament -> depth in mm. Filaments missing from `depths` (and the
     core filament) get no volume of their own; they become core.
+    primer: (filament, thickness) of an optional layer between colors and core.
     """
     body = to_manifold(verts, faces)
     log(f"body: {body.num_tri()} tris, volume {body.volume():.0f} mm³")
@@ -270,34 +272,30 @@ def build(
     hi_all = sub_tris.reshape(-1, 3).max(0)
 
     order = [f for f in sorted(depths, key=lambda f: depths[f]) if f != core_filament and np.any(lab == f)]
-    # Booleans only ever use the raw shells, which cross the skin transversally.
-    # Cutting with already-cut plugs would make faces coincide with the skin and
-    # leave zero-thickness flaps (dark/striped artifacts in slicer previews).
-    plugs: dict[int, m3d.Manifold] = {}
-    shells: list[m3d.Manifold] = []
-    for k, f in enumerate(order):  # shallow first: dark wins ties
-        d = depths[f]
+
+    def make_shell(k: int, d: float, rest_off: float = 0.0) -> m3d.Manifold | None:
+        """Shell of color order[k] reaching depth d (extends outside the body)."""
+        f = order[k]
         earlier = np.isin(lab, order[:k])
         later = np.isin(lab, order[k + 1 :])
         rest = ~(earlier | later | (lab == f))  # core-colored surface
         mine = pts[lab == f]
         tree_f = cKDTree(mine)
-        trees = [(cKDTree(pts[m]), off) for m, off in ((rest, 0.0), (later, 0.0), (earlier, overlap * voxel)) if m.any()]
+        trees = [(cKDTree(pts[m]), off) for m, off in ((rest, rest_off), (later, 0.0), (earlier, overlap * voxel)) if m.any()]
         reach_mm = d + 2 * voxel
         margin = d + 3 * voxel
         lo = lo_all - margin
         shape = np.ceil((hi_all + margin - lo) / voxel).astype(int) + 1
-
         band_cell = 4 * voxel
 
-        def field(p, tree_f=tree_f, trees=trees, d=d, reach_mm=reach_mm, band_cell=band_cell):
-            # Inside plug f: within depth d of f's surface and nearer to it
+        def field(p):
+            # Inside shell f: within depth d of f's surface and nearer to it
             # than to any other surface. Toward colors already processed we
             # reach `overlap` further; those get subtracted, so the shared
             # wall comes from the earlier color alone (no gaps, no slivers).
             g = np.full(len(p), -voxel, dtype=np.float64)
             # Narrow band: test coarse cells first; a cell whose centre is
-            # farther than reach + half-diagonal can't contain plug points.
+            # farther than reach + half-diagonal can't contain shell points.
             # (Cells are aligned to absolute coordinates, so every block makes
             # the same decision for a shared grid point.)
             cell = np.floor(p / band_cell).astype(np.int64)
@@ -313,12 +311,13 @@ def build(
                 pn, dn = p[near], df[near]
                 gn = d - dn
                 for tree, off in trees:
-                    do, _ = tree.query(pn, distance_upper_bound=reach_mm + off, workers=-1)
-                    gn = np.minimum(gn, np.minimum(do, reach_mm + off) + off - dn)
+                    ub = reach_mm + max(off, 0.0)
+                    do, _ = tree.query(pn, distance_upper_bound=ub, workers=-1)
+                    gn = np.minimum(gn, np.minimum(do, ub) + off - dn)
                 g[near] = gn
             return np.maximum(g, -voxel)  # no upper clip
 
-        # Blocks that can contain part of this plug.
+        # Blocks that can contain part of this shell.
         reach = int(np.ceil(margin / (voxel * block)))
         bidx = np.unique(((mine - lo) / (voxel * block)).astype(int), axis=0)
         offs = np.stack(np.meshgrid(*[np.arange(-reach, reach + 1)] * 3, indexing="ij"), -1).reshape(-1, 3)
@@ -326,10 +325,9 @@ def build(
         nblk = np.ceil(shape / block).astype(int)
         cand = cand[np.all((cand >= 0) & (cand < nblk), axis=1)]
         log(f"filament {f}: depth {d:.2f} mm, {len(mine)} samples, {len(cand)} blocks")
-
         iso = _isosurface_blocks(field, lo, voxel, shape, [tuple(c) for c in cand], block)
         if iso is None:
-            continue
+            return None
         shell = to_manifold(*iso)
         n0 = shell.num_tri()
         # Marching tets is very dense; flatten it before the booleans. Only the
@@ -337,6 +335,17 @@ def build(
         # tolerance is plenty; the outer surface still comes from `body`.
         shell = shell.simplify(simplify * voxel)
         log(f"filament {f}: shell {n0} -> {shell.num_tri()} tris")
+        return shell
+
+    # Booleans only ever use the raw shells, which cross the skin transversally.
+    # Cutting with already-cut plugs would make faces coincide with the skin and
+    # leave zero-thickness flaps (dark/striped artifacts in slicer previews).
+    plugs: dict[int, m3d.Manifold] = {}
+    shells: list[m3d.Manifold] = []
+    for k, f in enumerate(order):  # shallow first: dark wins ties
+        shell = make_shell(k, depths[f])
+        if shell is None:
+            continue
         plug = body ^ shell
         if shells:
             plug = plug - m3d.Manifold.batch_boolean(shells, m3d.OpType.Add)
@@ -344,7 +353,20 @@ def build(
         log(f"filament {f}: plug {plug.num_tri()} tris, volume {plug.volume():.0f} mm³")
         plugs[f] = plug
 
-    core = body - m3d.Manifold.batch_boolean(shells, m3d.OpType.Add) if shells else body
+    colors = m3d.Manifold.batch_boolean(shells, m3d.OpType.Add) if shells else None
+    inner = colors
+    if primer is not None and shells:
+        pf, pt = primer
+        # Primer = a layer of thickness pt right behind every color skin.
+        # Its walls toward core-painted surface are pulled back by `overlap`,
+        # so near the skin the color always covers it and it can't show.
+        ext = [s for k, f in enumerate(order) if (s := make_shell(k, depths[f] + pt, rest_off=-overlap * voxel)) is not None]
+        inner = m3d.Manifold.batch_boolean(ext + [colors], m3d.OpType.Add)
+        layer = (body ^ inner) - colors
+        log(f"primer (filament {pf}, {pt:.2f} mm): {layer.num_tri()} tris, volume {layer.volume():.0f} mm³")
+        plugs[pf] = plugs[pf] + layer if pf in plugs else layer
+
+    core = body - inner if inner is not None else body
     log(f"core: {core.num_tri()} tris, volume {core.volume():.0f} mm³")
     return DepthResult(
         core=from_manifold(core) if not core.is_empty() else None,
@@ -375,6 +397,7 @@ def process(
     smooth: float = 0.0,
     uniform: float | None = None,
     object_name: str | None = None,
+    primer: tuple[int, float] | None = None,
 ):
     """Build per-filament parts for every painted part of the selected objects.
 
@@ -408,12 +431,13 @@ def process(
         W = part.transform @ obj.transform
         Winv = np.linalg.inv(W)
         V = threemf.apply_transform(part.mesh.vertices, W)
-        res = build(V, part.mesh.faces, s.tris, s.filament, depths, core_f, voxel=voxel, smooth=smooth)
+        res = build(V, part.mesh.faces, s.tris, s.filament, depths, core_f, voxel=voxel, smooth=smooth, primer=primer)
         new = []
         if res.core is not None:
             v, f = res.core
             new.append(NewPart(f"{part.name} core", core_f, threemf.apply_transform(v, Winv), f))
         for fil, (v, f) in sorted(res.plugs.items()):
-            new.append(NewPart(f"{part.name} color {fil}", fil, threemf.apply_transform(v, Winv), f))
+            label = "primer" if primer and fil == primer[0] else f"color {fil}"
+            new.append(NewPart(f"{part.name} {label}", fil, threemf.apply_transform(v, Winv), f))
         replacements[(obj.id, part.id)] = new
     return replacements

@@ -57,3 +57,15 @@ def test_testmodel(tmp_path):
     assert all(o.parts[0].mesh.painted_count > 0 for o in proj.objects)
     for o in proj.objects:
         depth.to_manifold(o.parts[0].mesh.vertices, o.parts[0].mesh.faces)  # watertight
+
+
+def test_core_with_primer(painted_cube):
+    proj = threemf.load(painted_cube)
+    repl = depth.process(proj, core=4, uniform=1.0, primer=(3, 0.8), voxel=0.25)
+    ((_, parts),) = repl.items()
+    by = {p.extruder: p for p in parts}
+    assert set(by) == {1, 2, 3, 4}
+    assert "primer" in by[3].name
+    assert _vol(by[4]) == pytest.approx(16.4**3, rel=0.02)  # core: 20 - 2 * (1.0 + 0.8)
+    assert _vol(by[3]) == pytest.approx(18.0**3 - 16.4**3, rel=0.03)  # primer layer
+    assert sum(_vol(p) for p in parts) == pytest.approx(8000, rel=1e-3)

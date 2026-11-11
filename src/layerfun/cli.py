@@ -109,9 +109,15 @@ def cmd_core(args: argparse.Namespace) -> None:
 
     proj = threemf.load(args.file)
     _check_filament(proj, args.filament)
+    primer = None
+    if args.primer is not None:
+        _check_filament(proj, args.primer)
+        if args.primer == args.filament:
+            raise SystemExit("--primer must be a different filament than the core")
+        primer = (args.primer, args.primer_thickness)
     out = _out(args, "core")
     repl = depth.process(proj, _parse_depths(args.depth), core=args.filament, voxel=args.voxel, uniform=args.skin,
-                         object_name=args.object)  # fmt: skip
+                         object_name=args.object, primer=primer)  # fmt: skip
     if not repl:
         raise SystemExit("no objects selected")
     _warn_materials(proj, repl)
@@ -174,6 +180,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--filament", type=int, required=True, help="filament slot for the core (must exist in the project)")
     p.add_argument("--skin", type=float, default=1.2, help="skin thickness in mm for every color (default 1.2)")
     p.add_argument("--depth", help="per-filament skin overrides in mm, e.g. 3=0.6")
+    p.add_argument("--primer", type=int, help="filament for a layer between colors and core (e.g. white over a black core)")
+    p.add_argument("--primer-thickness", type=float, default=0.8, help="primer layer thickness in mm (default 0.8)")
     p.add_argument("--object", help="only objects whose name contains this (default: painted objects, else all)")
     p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
     p.add_argument("-o", "--out", help="output 3MF (default: <file>-core.3mf)")

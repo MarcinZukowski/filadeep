@@ -66,6 +66,10 @@ Profiled: ~80% is KD-tree distance queries over the voxel grid.
   - Interlocking between core/skin or shell/body for poorly bonding pairs (we only
     warn today, from a small hard-coded list).
   - Shell: option to leave openings, or to skip faces pointing down (supports).
+  - Primer (`core --primer N`): currently sits behind every color, black included.
+    Option to skip it behind dark colors (`--primer-skip 3`, or by luminance) to
+    save material; geometry already supports it (just don't extend those shells).
+    Test plate with core + primer: 14h 55m vs 5h 51m (two extra filaments/layer).
   - Core: the skin follows every surface including the bottom; maybe allow
     "no skin on the bottom face" (invisible anyway, saves changes on early layers).
 - **Web interface**: manifold3d has a WASM build; keep the core a library.
