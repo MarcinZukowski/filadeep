@@ -59,6 +59,27 @@ def cmd_render(args: argparse.Namespace) -> None:
         print(out)
 
 
+def _parse_depths(spec: str | None) -> dict[int, float]:
+    out = {}
+    for item in (spec or "").split(","):
+        if item.strip():
+            k, v = item.split("=")
+            out[int(k)] = float(v)
+    return out
+
+
+def cmd_depth(args: argparse.Namespace) -> None:
+    from . import depth, write3mf
+
+    proj = threemf.load(args.file)
+    out = Path(args.out) if args.out else Path(args.file).with_name(Path(args.file).stem + "-depth.3mf")
+    repl = depth.process(proj, _parse_depths(args.depth), core=args.core, voxel=args.voxel, dmin=args.min_depth, dmax=args.max_depth)
+    if not repl:
+        raise SystemExit("no painted parts found")
+    write3mf.replace_parts(proj, out, repl)
+    depth.log(f"wrote {out}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="layerfun", description="Tools for painted multi-color 3MF files.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -76,5 +97,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--size", type=int, default=900)
     p.add_argument("-o", "--out", help="output directory")
     p.set_defaults(func=cmd_render)
+    p = sub.add_parser("depth", help="turn paint into solid per-color parts with controlled depth")
+    p.add_argument("file")
+    p.add_argument("-o", "--out", help="output 3MF (default: <file>-depth.3mf)")
+    p.add_argument("--depth", help="per-filament depth overrides in mm, e.g. 3=0.4,1=1.5")
+    p.add_argument("--core", type=int, help="filament for the interior (default: the part's filament)")
+    p.add_argument("--min-depth", type=float, default=0.45, help="depth for black (default 0.45)")
+    p.add_argument("--max-depth", type=float, default=1.6, help="depth for white (default 1.6)")
+    p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
+    p.set_defaults(func=cmd_depth)
     args = ap.parse_args(argv)
     args.func(args)
