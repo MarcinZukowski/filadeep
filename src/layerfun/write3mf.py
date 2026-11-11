@@ -29,7 +29,7 @@ class NewPart:
 def _mesh_xml(obj_id: int, part: NewPart) -> str:
     v = np.asarray(part.vertices, dtype=np.float64)
     f = np.asarray(part.faces, dtype=np.int64)
-    vs = "\n".join(f'     <vertex x="{x:.6g}" y="{y:.6g}" z="{z:.6g}"/>' for x, y, z in v.tolist())
+    vs = "\n".join(f'     <vertex x="{x:.9g}" y="{y:.9g}" z="{z:.9g}"/>' for x, y, z in v.tolist())
     ts = "\n".join(f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in f.tolist())
     return (
         f'  <object id="{obj_id}" p:UUID="{uuid.uuid4()}" type="model">\n'

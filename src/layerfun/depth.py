@@ -50,15 +50,35 @@ def default_depth(hex_color: str, dmin: float = 0.45, dmax: float = 1.6) -> floa
 
 
 def to_manifold(verts: np.ndarray, faces: np.ndarray) -> m3d.Manifold:
-    m = m3d.Manifold(m3d.Mesh(vert_properties=np.ascontiguousarray(verts, np.float32), tri_verts=np.ascontiguousarray(faces, np.uint32)))
+    mesh = m3d.Mesh64(
+        vert_properties=np.ascontiguousarray(verts, np.float64),
+        tri_verts=np.ascontiguousarray(faces, np.uint64),
+    )
+    m = m3d.Manifold(mesh)
     if m.status() != m3d.Error.NoError:
         raise ValueError(f"mesh is not manifold: {m.status()}")
     return m
 
 
 def from_manifold(m: m3d.Manifold) -> tuple[np.ndarray, np.ndarray]:
-    mesh = m.to_mesh()
-    return np.asarray(mesh.vert_properties)[:, :3].astype(np.float64), np.asarray(mesh.tri_verts).astype(np.int64)
+    mesh = m.to_mesh64()
+    return np.asarray(mesh.vert_properties)[:, :3].copy(), np.asarray(mesh.tri_verts).astype(np.int64)
+
+
+def smooth_labels(pts: np.ndarray, lab: np.ndarray, radius: float, k: int = 24) -> np.ndarray:
+    """Majority vote of labels among each sample's neighbours within `radius`.
+
+    Removes paint specks and the sawtooth along paint edges that are smaller
+    than the grid can resolve (they'd become paper-thin films under the skin).
+    """
+    tree = cKDTree(pts)
+    _, idx = tree.query(pts, k=k, distance_upper_bound=radius, workers=-1)
+    valid = idx < len(pts)
+    idx = np.where(valid, idx, 0)
+    nb = np.where(valid, lab[idx], -1)
+    uniq = np.unique(lab)
+    counts = np.stack([(nb == u).sum(1) for u in uniq], 1)
+    return uniq[np.argmax(counts, 1)]
 
 
 def sample_surface(tris: np.ndarray, labels: np.ndarray, spacing: float, seed: int = 0):
@@ -214,6 +234,8 @@ def build(
     voxel: float = 0.25,
     block: int = 24,
     simplify: float = 0.3,
+    overlap: float = 1.0,
+    smooth: float = 0.0,
 ) -> DepthResult:
     """Split a solid (verts/faces, world mm) into per-filament volumes.
 
@@ -226,36 +248,49 @@ def build(
 
     pts, lab = sample_surface(sub_tris, sub_fil, spacing=voxel * 0.4)
     log(f"surface samples: {len(pts)}")
+    if smooth > 0:
+        before = lab
+        lab = smooth_labels(pts, lab, smooth * voxel)
+        log(f"smoothed paint: {np.mean(before != lab) * 100:.2f}% of samples relabeled")
 
     lo_all = sub_tris.reshape(-1, 3).min(0)
     hi_all = sub_tris.reshape(-1, 3).max(0)
 
+    order = [f for f in sorted(depths, key=lambda f: depths[f]) if f != core_filament and np.any(lab == f)]
+    # Booleans only ever use the raw shells, which cross the skin transversally.
+    # Cutting with already-cut plugs would make faces coincide with the skin and
+    # leave zero-thickness flaps (dark/striped artifacts in slicer previews).
     plugs: dict[int, m3d.Manifold] = {}
-    taken = None
-    for f in sorted(depths, key=lambda f: depths[f]):  # shallow first: dark wins ties
+    shells: list[m3d.Manifold] = []
+    for k, f in enumerate(order):  # shallow first: dark wins ties
         d = depths[f]
-        if f == core_filament or not np.any(lab == f):
-            continue
+        earlier = np.isin(lab, order[:k])
+        later = np.isin(lab, order[k + 1 :])
+        rest = ~(earlier | later | (lab == f))  # core-colored surface
         mine = pts[lab == f]
         tree_f = cKDTree(mine)
-        tree_o = cKDTree(pts[lab != f]) if np.any(lab != f) else None
+        trees = [(cKDTree(pts[m]), off) for m, off in ((rest, 0.0), (later, 0.0), (earlier, overlap * voxel)) if m.any()]
+        reach_mm = d + 2 * voxel
         margin = d + 3 * voxel
         lo = lo_all - margin
         shape = np.ceil((hi_all + margin - lo) / voxel).astype(int) + 1
 
-        def field(p, tree_f=tree_f, tree_o=tree_o, d=d):
-            df, _ = tree_f.query(p, distance_upper_bound=d + 2 * voxel, workers=-1)
+        def field(p, tree_f=tree_f, trees=trees, d=d, reach_mm=reach_mm):
+            # Inside plug f: within depth d of f's surface and nearer to it
+            # than to any other surface. Toward colors already processed we
+            # reach `overlap` further; those get subtracted, so the shared
+            # wall comes from the earlier color alone (no gaps, no slivers).
+            df, _ = tree_f.query(p, distance_upper_bound=reach_mm, workers=-1)
             g = np.full(len(p), -voxel, dtype=np.float64)
             near = np.isfinite(df)
             if near.any():
                 pn, dn = p[near], df[near]
-                if tree_o is not None:
-                    do, _ = tree_o.query(pn, distance_upper_bound=d + 2 * voxel, workers=-1)
-                    do = np.minimum(do, d + 2 * voxel)
-                else:
-                    do = np.full(len(pn), np.inf)
-                g[near] = np.minimum(d - dn, do - dn)
-            return np.maximum(g, -voxel)  # no upper clip: equal values cause MC saddle ties
+                gn = d - dn
+                for tree, off in trees:
+                    do, _ = tree.query(pn, distance_upper_bound=reach_mm + off, workers=-1)
+                    gn = np.minimum(gn, np.minimum(do, reach_mm + off) + off - dn)
+                g[near] = gn
+            return np.maximum(g, -voxel)  # no upper clip
 
         # Blocks that can contain part of this plug.
         reach = int(np.ceil(margin / (voxel * block)))
@@ -276,14 +311,14 @@ def build(
         # tolerance is plenty; the outer surface still comes from `body`.
         shell = shell.simplify(simplify * voxel)
         log(f"filament {f}: shell {n0} -> {shell.num_tri()} tris")
-        plug = body ^ shell  # intersection
-        if taken is not None:
-            plug = plug - taken
-        taken = plug if taken is None else taken + plug
+        plug = body ^ shell
+        if shells:
+            plug = plug - m3d.Manifold.batch_boolean(shells, m3d.OpType.Add)
+        shells.append(shell)
         log(f"filament {f}: plug {plug.num_tri()} tris, volume {plug.volume():.0f} mm³")
         plugs[f] = plug
 
-    core = body - taken if taken is not None else body
+    core = body - m3d.Manifold.batch_boolean(shells, m3d.OpType.Add) if shells else body
     log(f"core: {core.num_tri()} tris, volume {core.volume():.0f} mm³")
     return DepthResult(
         core=from_manifold(core) if not core.is_empty() else None,
@@ -301,6 +336,7 @@ def process(
     voxel: float = 0.25,
     dmin: float = 0.45,
     dmax: float = 1.6,
+    smooth: float = 0.0,
 ):
     """Build per-filament parts for every painted part of `project`.
 
@@ -324,7 +360,7 @@ def process(
         W = part.transform @ obj.transform
         Winv = np.linalg.inv(W)
         V = threemf.apply_transform(part.mesh.vertices, W)
-        res = build(V, part.mesh.faces, s.tris, s.filament, depths, core_f, voxel=voxel)
+        res = build(V, part.mesh.faces, s.tris, s.filament, depths, core_f, voxel=voxel, smooth=smooth)
         new = []
         if res.core is not None:
             v, f = res.core

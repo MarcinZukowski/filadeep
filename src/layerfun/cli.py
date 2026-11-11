@@ -73,7 +73,7 @@ def cmd_depth(args: argparse.Namespace) -> None:
 
     proj = threemf.load(args.file)
     out = Path(args.out) if args.out else Path(args.file).with_name(Path(args.file).stem + "-depth.3mf")
-    repl = depth.process(proj, _parse_depths(args.depth), core=args.core, voxel=args.voxel, dmin=args.min_depth, dmax=args.max_depth)
+    repl = depth.process(proj, _parse_depths(args.depth), core=args.core, voxel=args.voxel, dmin=args.min_depth, dmax=args.max_depth, smooth=args.smooth)
     if not repl:
         raise SystemExit("no painted parts found")
     write3mf.replace_parts(proj, out, repl)
@@ -105,6 +105,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--min-depth", type=float, default=0.45, help="depth for black (default 0.45)")
     p.add_argument("--max-depth", type=float, default=1.6, help="depth for white (default 1.6)")
     p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
+    p.add_argument("--smooth", type=float, default=0.0, help="paint-edge smoothing radius in voxels, e.g. 1 (default 0 = off)")
     p.set_defaults(func=cmd_depth)
     args = ap.parse_args(argv)
     args.func(args)
