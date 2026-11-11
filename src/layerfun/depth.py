@@ -355,6 +355,16 @@ def build(
 # ------------------------------------------------------------------ project
 
 
+def select_objects(project, name: str | None = None):
+    """Objects to operate on: name filter, else painted objects, else all."""
+    objs = project.objects
+    if name:
+        objs = [o for o in objs if name.lower() in o.name.lower()]
+    elif any(p.mesh.painted_count for o in objs for p in o.parts):
+        objs = [o for o in objs if any(p.mesh.painted_count for p in o.parts)]
+    return objs
+
+
 def process(
     project,
     depth_overrides: dict[int, float] | None = None,
@@ -363,21 +373,33 @@ def process(
     dmin: float = 0.45,
     dmax: float = 1.6,
     smooth: float = 0.0,
+    uniform: float | None = None,
+    object_name: str | None = None,
 ):
-    """Build per-filament parts for every painted part of `project`.
+    """Build per-filament parts for every painted part of the selected objects.
+
+    uniform: if set, every surface color gets this depth (a skin of constant
+    thickness, used for a separate core material) instead of luminance-based
+    defaults; per-filament overrides still win.
 
     Returns {(object id, part id): [NewPart, ...]} for write3mf.replace_parts.
     """
     from . import regions, threemf
     from .write3mf import NewPart
 
+    objs = {o.id for o in select_objects(project, object_name)}
     replacements = {}
     for s in regions.surfaces(project):
-        if s.part.mesh.painted_count == 0:
-            continue
         obj, part = s.object, s.part
+        if obj.id not in objs or part.subtype != "normal_part":
+            continue
+        if part.mesh.painted_count == 0 and core is None:
+            continue
         core_f = core if core is not None else obj.part_extruder(part)
-        depths = {int(f): default_depth(project.filament_color(int(f)), dmin, dmax) for f in np.unique(s.filament)}
+        if uniform is not None:
+            depths = {int(f): uniform for f in np.unique(s.filament)}
+        else:
+            depths = {int(f): default_depth(project.filament_color(int(f)), dmin, dmax) for f in np.unique(s.filament)}
         depths.update(depth_overrides or {})
         log(
             f"object '{obj.name}' part '{part.name}': core filament {core_f}, depths "

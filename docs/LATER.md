@@ -56,14 +56,27 @@ Profiled: ~80% is KD-tree distance queries over the voxel grid.
 - Output size: ~2.5M triangles / 30 MB; could simplify the shells more, or
   decimate interior-only faces harder.
 
-## Features from IDEA.md not started
-- **#1 Separate core material** (e.g. strong white core + color skin). Mostly
-  there: `--core N` with N a different filament. Needs: an explicit skin depth
-  for colors painted in the core filament itself, and material-compatibility
-  warnings (PLA/PETG, ASA/PETG don't bond) / interlocking.
-- **#3 Outer shell** (e.g. 1 mm PVB around the model for smoothing): offset the
-  body outward via the same distance-field machinery, subtract the body.
+## Features from IDEA.md
+- **#1 core** and **#3 shell** have first versions (`layerfun core`, `layerfun shell`).
+  Open points:
+  - Print time: test plate 5h 51m → core 8h 58m, shell 9h 54m. Both add one more
+    filament to nearly every layer (= one more change + purge per layer). Inherent
+    to the idea, but worth reporting up front, and per-part settings (e.g. core as
+    sparse infill only, no walls) could claw some back.
+  - Interlocking between core/skin or shell/body for poorly bonding pairs (we only
+    warn today, from a small hard-coded list).
+  - Shell: option to leave openings, or to skip faces pointing down (supports).
+  - Core: the skin follows every surface including the bottom; maybe allow
+    "no skin on the bottom face" (invisible anyway, saves changes on early layers).
 - **Web interface**: manifold3d has a WASM build; keep the core a library.
+
+## Test plate
+`layerfun testmodel -o models/testshapes.3mf --template models/kitsune-black.3mf`
+writes a cube/pyramid/sphere plate covering dark-on-light, light-on-dark, thin
+lines, sloped/near-horizontal paint. `--template` copies the slicer settings,
+Application tag and nozzle map from a real Bambu project (without it Bambu slices
+with its defaults and ignores the paint). ~12–27 s per command vs ~45–90 s for the
+kitsune.
 
 ## Tooling ideas
 - `layerfun gcode-layer`: render a layer of sliced G-code colored by filament

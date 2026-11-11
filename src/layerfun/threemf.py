@@ -56,12 +56,18 @@ class Project:
     path: Path
     objects: list[Object]
     filament_colors: list[str] = field(default_factory=list)  # "#RRGGBB", index 0 = filament 1
+    filament_types: list[str] = field(default_factory=list)  # "PLA", "PETG", ... index 0 = filament 1
     application: str = ""
 
     def filament_color(self, n: int) -> str:
         if 1 <= n <= len(self.filament_colors):
             return self.filament_colors[n - 1]
         return "#808080"
+
+    def filament_type(self, n: int) -> str:
+        if 1 <= n <= len(self.filament_types):
+            return self.filament_types[n - 1]
+        return "?"
 
 
 # ------------------------------------------------------------------ helpers
@@ -200,10 +206,12 @@ def load(path: str | Path) -> Project:
             )
 
         colors: list[str] = []
+        types: list[str] = []
         if "Metadata/project_settings.config" in names:
             try:
                 ps = json.loads(z.read("Metadata/project_settings.config"))
                 colors = list(ps.get("filament_colour", []))
+                types = list(ps.get("filament_type", []))
             except (json.JSONDecodeError, UnicodeDecodeError):
                 pass
         elif "Metadata/Slic3r_PE.config" in names:
@@ -212,4 +220,4 @@ def load(path: str | Path) -> Project:
             if m:
                 colors = [c.strip().strip('"') for c in m.group(1).split(";")]
 
-    return Project(path=path, objects=objects, filament_colors=colors, application=app)
+    return Project(path=path, objects=objects, filament_colors=colors, filament_types=types, application=app)

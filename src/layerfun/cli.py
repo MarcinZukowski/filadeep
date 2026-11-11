@@ -68,16 +68,76 @@ def _parse_depths(spec: str | None) -> dict[int, float]:
     return out
 
 
+def _out(args: argparse.Namespace, suffix: str) -> Path:
+    return Path(args.out) if args.out else Path(args.file).with_name(Path(args.file).stem + f"-{suffix}.3mf")
+
+
+def _check_filament(proj, n: int) -> None:
+    if not 1 <= n <= len(proj.filament_colors):
+        raise SystemExit(
+            f"filament {n} doesn't exist in this project (it has {len(proj.filament_colors)}); add it in Bambu Studio first"
+        )
+
+
+def _warn_materials(proj, repl) -> None:
+    from . import materials
+
+    pairs = set()
+    for parts in repl.values():
+        exts = sorted({p.extruder for p in parts})
+        pairs |= {(a, b) for i, a in enumerate(exts) for b in exts[i + 1 :]}
+    for w in materials.warnings(proj, pairs):
+        print(f"WARNING: {w}")
+
+
 def cmd_depth(args: argparse.Namespace) -> None:
     from . import depth, write3mf
 
     proj = threemf.load(args.file)
-    out = Path(args.out) if args.out else Path(args.file).with_name(Path(args.file).stem + "-depth.3mf")
-    repl = depth.process(proj, _parse_depths(args.depth), core=args.core, voxel=args.voxel, dmin=args.min_depth, dmax=args.max_depth, smooth=args.smooth)
+    out = _out(args, "depth")
+    repl = depth.process(proj, _parse_depths(args.depth), core=args.core, voxel=args.voxel, dmin=args.min_depth,
+                         dmax=args.max_depth, smooth=args.smooth, object_name=args.object)  # fmt: skip
     if not repl:
         raise SystemExit("no painted parts found")
+    _warn_materials(proj, repl)
     write3mf.replace_parts(proj, out, repl)
     depth.log(f"wrote {out}")
+
+
+def cmd_core(args: argparse.Namespace) -> None:
+    from . import depth, write3mf
+
+    proj = threemf.load(args.file)
+    _check_filament(proj, args.filament)
+    out = _out(args, "core")
+    repl = depth.process(proj, _parse_depths(args.depth), core=args.filament, voxel=args.voxel, uniform=args.skin,
+                         object_name=args.object)  # fmt: skip
+    if not repl:
+        raise SystemExit("no objects selected")
+    _warn_materials(proj, repl)
+    write3mf.replace_parts(proj, out, repl)
+    depth.log(f"wrote {out}")
+
+
+def cmd_shell(args: argparse.Namespace) -> None:
+    from . import depth, shell, write3mf
+
+    proj = threemf.load(args.file)
+    _check_filament(proj, args.filament)
+    out = _out(args, "shell")
+    repl = shell.process(proj, args.filament, args.thickness, voxel=args.voxel, trim_bottom=not args.keep_bottom,
+                         object_name=args.object)  # fmt: skip
+    if not repl:
+        raise SystemExit("no objects selected")
+    _warn_materials(proj, repl)
+    write3mf.replace_parts(proj, out, repl)
+    depth.log(f"wrote {out}")
+
+
+def cmd_testmodel(args: argparse.Namespace) -> None:
+    from . import testmodel
+
+    print(testmodel.write(args.out, template=args.template, scale=args.scale))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -106,6 +166,33 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-depth", type=float, default=1.6, help="depth for white (default 1.6)")
     p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
     p.add_argument("--smooth", type=float, default=0.0, help="paint-edge smoothing radius in voxels, e.g. 1 (default 0 = off)")
+    p.add_argument("--object", help="only objects whose name contains this (default: all painted objects)")
     p.set_defaults(func=cmd_depth)
+
+    p = sub.add_parser("core", help="#1: keep a colored skin of fixed thickness, fill the inside with another filament")
+    p.add_argument("file")
+    p.add_argument("--filament", type=int, required=True, help="filament slot for the core (must exist in the project)")
+    p.add_argument("--skin", type=float, default=1.2, help="skin thickness in mm for every color (default 1.2)")
+    p.add_argument("--depth", help="per-filament skin overrides in mm, e.g. 3=0.6")
+    p.add_argument("--object", help="only objects whose name contains this (default: painted objects, else all)")
+    p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
+    p.add_argument("-o", "--out", help="output 3MF (default: <file>-core.3mf)")
+    p.set_defaults(func=cmd_core)
+
+    p = sub.add_parser("shell", help="#3: wrap the model in a layer of another filament (e.g. PVB for smoothing)")
+    p.add_argument("file")
+    p.add_argument("--filament", type=int, required=True, help="filament slot for the shell (must exist in the project)")
+    p.add_argument("--thickness", type=float, default=1.0, help="shell thickness in mm (default 1.0)")
+    p.add_argument("--keep-bottom", action="store_true", help="also cover the bottom (default: cut flat at the model's base)")
+    p.add_argument("--object", help="only objects whose name contains this (default: painted objects, else all)")
+    p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
+    p.add_argument("-o", "--out", help="output 3MF (default: <file>-shell.3mf)")
+    p.set_defaults(func=cmd_shell)
+
+    p = sub.add_parser("testmodel", help="write a small painted test plate (cube, pyramid, sphere)")
+    p.add_argument("-o", "--out", default="testshapes.3mf")
+    p.add_argument("--template", help="copy slicer settings from this Bambu 3MF (needs the same 6 filament slots)")
+    p.add_argument("--scale", type=float, default=1.0)
+    p.set_defaults(func=cmd_testmodel)
     args = ap.parse_args(argv)
     args.func(args)
