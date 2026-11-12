@@ -113,7 +113,7 @@ A paint-aware simplifier (half-edge collapse inside same-paint regions, paint
 boundaries fixed) would help such inputs; the web UI warns above 1M triangles.
 
 ## Test plate
-`filadeep testmodel -o web/models/testshapes.3mf --template models/template-h2c.3mf`
+`filadeep testmodel -o ../web/models/testshapes.3mf --template template-h2c.3mf`
 uses 5 slots (H2C: 4 AMS + side feed): 1 green and 2 light blue PLA Silk+,
 3 black PLA-CF (paint + core), 4 white PLA Basic (paint + primer), 5 red
 translucent PLA-PVB (shell). Derived files:

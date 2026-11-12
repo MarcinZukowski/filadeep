@@ -1,40 +1,66 @@
 # FilaDeep
 
-Tools for painted multi-color 3MF files (Bambu Studio / OrcaSlicer). See `IDEA.md`.
+FilaDeep takes a color-painted Bambu Studio / OrcaSlicer project (`.3mf`) and
+turns the paint into real solid parts, so you control how deep each color goes.
+It runs entirely in the browser; nothing is uploaded.
+
+What it does:
+
+- **Color depth.** Dark colors stay shallow, so black eyes don't show through
+  the light plastic around them. Light colors go deeper, so white details on a
+  dark body stay bright instead of being one thin layer.
+- **Core.** Fill the inside with another filament (e.g. strong or cheap PLA-CF)
+  and keep the colors as a skin of fixed thickness.
+- **Primer.** Add a layer between the colors and the core, e.g. white over a
+  black core.
+- **Shell.** Wrap the model in a thin layer of another filament, e.g. clear PVB
+  to smooth with alcohol.
+
+The output is a copy of your project with the new parts; all slicer settings are
+kept. Filament slots must already exist in the project. The original idea and
+the problem photos are in `IDEA.md` and `img/`.
+
+## Run it locally
+
+Needs a recent [Node.js](https://nodejs.org/).
 
 ```bash
-uv run filadeep info model.3mf                         # objects, parts, painted area per filament
-uv run filadeep render model.3mf --views iso,front     # quick PNG previews
-
-uv run filadeep depth model.3mf                        # #2 per-color depth: dark shallow, light deep
-uv run filadeep depth model.3mf --depth 3=0.4,1=1.8    #    override depths (mm) per filament slot
-uv run filadeep core  model.3mf --filament 3 --skin 1.2     # #1 colored skin + core in another filament
-uv run filadeep core  model.3mf --filament 3 --primer 4     #    ...with a primer layer between (e.g. white over black PLA-CF)
-uv run filadeep shell model.3mf --filament 5 --thickness 1  # #3 wrap in another filament (e.g. PVB / translucent PLA)
-
-uv run filadeep testmodel -o web/models/testshapes.3mf --template models/template-h2c.3mf
-uv run filadeep testmodel --model penguin -o web/models/penguin.3mf --template models/template-h2c.3mf   # organic example
+cd web
+npm install          # once: downloads three.js, manifold-3d and fflate
+node serve.mjs       # then open http://localhost:8000/
 ```
 
-Each command writes `<file>-<command>.3mf` (or `-o`). Filament slots must already exist
-in the Bambu project. Parked ideas and open issues: `docs/LATER.md`.
+There is no build step: the browser loads the source files as they are, so
+edit a file and reload the page.
 
-Tests: `uv run pytest`
+The page opens with the `testshapes` demo. Pick options, press **RUN**, then
+**Save 3MF** and open the result in your slicer.
 
-## Web version (prototype)
+- **Models:** open a file, drop one on the page, or use Open URL (the server
+  must allow CORS). The demos are in `web/models/`.
+- **Private models:** put them in the repo's `models/` folder (not in git). The
+  dev server serves them too, e.g. `http://localhost:8000/#src=models/my.3mf`.
+- **Links:** all options live in the address, and "Copy link" copies it, e.g.
+  `#src=models/penguin.3mf&core=3&primer=4&shell=5`. Add `&run=1` to start
+  processing on load.
+- **Layer view:** the sliders on the right edge of both views cut the model
+  from above and below, to see what's inside.
 
-A browser port of the same pipeline (JavaScript + manifold's WASM build), with
-side-by-side source/output views, a shared camera and a layer slicer.
+Without a browser:
 
 ```bash
-cd web && npm install && cd ..
-node web/serve.mjs            # http://localhost:8000/
+node web/bench.mjs in.3mf out.3mf --core 3 --skin 1.2 --primer 4 --shell 5
 ```
 
-- Load a model from a URL (the server must allow CORS), a file, or drag & drop.
-  The demos live in `web/models/` and are referenced relative to the page: `#src=models/testshapes.3mf`.
-  The dev server also serves the repo's untracked `models/` under the same path, for private models.
-- Options live in the URL hash; "Copy link" gives a link with the source URL and
-  all settings, e.g. `#src=models/testshapes.3mf&core=3&primer=4&skin=1.0&shell=5`
-  (add `&run=1` to start processing on load).
-- `node web/bench.mjs in.3mf out.3mf [--core 3 --skin 1 --primer 4] [--shell 5]` runs it in Node.
+## Hosting
+
+`web/` is a static site: any static host works once `npm install` has run
+there. It must be served over http(s); opening `index.html` from disk does not
+work.
+
+## Python version
+
+The same pipeline as a command-line tool, which is also where the demo models
+are generated: see [`cli-python/`](cli-python/README.md).
+
+Parked ideas and open issues: `docs/LATER.md`.
