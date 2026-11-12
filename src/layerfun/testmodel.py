@@ -7,9 +7,13 @@ Covers the cases LayerFun cares about, in ~1/10 of the kitsune's processing time
   - near-horizontal and sloped painted surfaces                 cube top, pyramid
   - light-on-light (white cap on green)                         sphere
 
-Palette = the kitsune project's filament slots, so a real Bambu project can be
-used as a settings template (`--template`):
-  1 light green  2 light blue  3 black  4 white  5 white  6 dark blue
+Palette = 5 slots (what an H2C feeds easily: 4 AMS + 1 side feed). A real Bambu
+project with the same slots should be used as a settings template (`--template`):
+  1 black PLA-CF   paint + core        (core --filament 1)
+  2 green PLA      paint
+  3 light blue PLA paint
+  4 white PLA      paint + primer      (core --primer 4)
+  5 translucent    shell, 50% alpha    (shell --filament 5)
 """
 
 from __future__ import annotations
@@ -21,8 +25,10 @@ from pathlib import Path
 
 import numpy as np
 
-COLORS = ["#A1FFAC", "#A4DBE8", "#000000", "#FFFFFF", "#FFFFFF", "#2850E0"]
-TYPES = ["PLA", "PLA", "PLA", "PLA", "PLA", "PLA"]
+BLACK, GREEN, BLUE, WHITE, SHELL = 1, 2, 3, 4, 5
+# The shell slot is 50% transparent (#RRGGBBAA), so Bambu shows what is underneath.
+COLORS = ["#000000", "#A1FFAC", "#A4DBE8", "#FFFFFF", "#2850E080"]
+TYPES = ["PLA-CF", "PLA", "PLA", "PLA", "PLA"]
 PAINT = {1: "4", 2: "8", 3: "0C", 4: "1C", 5: "2C", 6: "3C"}  # whole-triangle paint codes
 
 
@@ -76,48 +82,48 @@ def sphere_mesh(r: float):
 
 
 def paint_cube(c: np.ndarray, n: np.ndarray, s: float) -> np.ndarray:
-    """Light blue (2) body. Front: black eyes + green smile. Right: black face with
+    """Light blue body. Front: black eyes + green smile. Right: black face with
     thin and thick green lines. Top: black disc with green dot. Left: white dot, thin black line."""
-    lab = np.full(len(c), 2)
+    lab = np.full(len(c), BLUE)
     x, y, z = c.T
     front, right, top, left = n[:, 1] < -0.9, n[:, 0] > 0.9, n[:, 2] > 0.9, n[:, 0] < -0.9
     for ex in (-s * 0.2, s * 0.2):
-        lab[front & (np.hypot(x - ex, z - s * 0.65) < s * 0.1)] = 3
-    lab[front & (np.abs(z - s * 0.3) < s * 0.05) & (np.abs(x) < s * 0.3)] = 1
-    lab[right] = 3
-    lab[right & (np.abs(z - s * 0.35) < 0.4)] = 1  # 0.8 mm line
-    lab[right & (np.abs(z - s * 0.7) < 2.0)] = 1  # 4 mm band
-    lab[top & (np.hypot(x, y) < s * 0.3)] = 3
-    lab[top & (np.hypot(x, y) < s * 0.1)] = 1
-    lab[left & (np.hypot(y, z - s * 0.6) < s * 0.08)] = 4
-    lab[left & (np.abs(z - s * 0.3) < 0.4)] = 3
+        lab[front & (np.hypot(x - ex, z - s * 0.65) < s * 0.1)] = BLACK
+    lab[front & (np.abs(z - s * 0.3) < s * 0.05) & (np.abs(x) < s * 0.3)] = GREEN
+    lab[right] = BLACK
+    lab[right & (np.abs(z - s * 0.35) < 0.4)] = GREEN  # 0.8 mm line
+    lab[right & (np.abs(z - s * 0.7) < 2.0)] = GREEN  # 4 mm band
+    lab[top & (np.hypot(x, y) < s * 0.3)] = BLACK
+    lab[top & (np.hypot(x, y) < s * 0.1)] = GREEN
+    lab[left & (np.hypot(y, z - s * 0.6) < s * 0.08)] = WHITE
+    lab[left & (np.abs(z - s * 0.3) < 0.4)] = BLACK
     return lab
 
 
 def paint_pyramid(c: np.ndarray, n: np.ndarray, height: float) -> np.ndarray:
-    """Black (3) body: green and white horizontal bands, a light blue triangle on one face."""
-    lab = np.full(len(c), 3)
+    """Black body: green and white horizontal bands, a light blue triangle on one face."""
+    lab = np.full(len(c), BLACK)
     z = c[:, 2]
     side = n[:, 2] > -0.9
-    lab[side & (np.abs(z - height * 0.25) < 1.5)] = 1
-    lab[side & (np.abs(z - height * 0.5) < 0.6)] = 4
-    lab[side & (z > height * 0.8)] = 1  # tip
+    lab[side & (np.abs(z - height * 0.25) < 1.5)] = GREEN
+    lab[side & (np.abs(z - height * 0.5) < 0.6)] = WHITE
+    lab[side & (z > height * 0.8)] = GREEN  # tip
     face = side & (n[:, 1] < -0.5)
-    lab[face & (z > height * 0.32) & (z < height * 0.45) & (np.abs(c[:, 0]) < (height * 0.45 - z) * 0.8)] = 2
+    lab[face & (z > height * 0.32) & (z < height * 0.45) & (np.abs(c[:, 0]) < (height * 0.45 - z) * 0.8)] = BLUE
     return lab
 
 
 def paint_sphere(c: np.ndarray, r: float) -> np.ndarray:
-    """Light green (1) body: black eyes, thin black ring, white cap, light blue meridian stripe."""
-    lab = np.full(len(c), 1)
+    """Light green body: black eyes, thin black ring, white cap, light blue meridian stripe."""
+    lab = np.full(len(c), GREEN)
     u = c / np.linalg.norm(c, axis=1, keepdims=True)
     lat = np.degrees(np.arcsin(np.clip(u[:, 2], -1, 1)))
     lon = np.degrees(np.arctan2(u[:, 1], u[:, 0]))
-    lab[lat > 60] = 4
-    lab[np.abs(lat - 30) < np.degrees(0.4 / r)] = 3  # 0.8 mm ring
-    lab[(np.abs(lon - 90) < 6) & (lat < 25) & (lat > -60)] = 2
+    lab[lat > 60] = WHITE
+    lab[np.abs(lat - 30) < np.degrees(0.4 / r)] = BLACK  # 0.8 mm ring
+    lab[(np.abs(lon - 90) < 6) & (lat < 25) & (lat > -60)] = BLUE
     for elon in (-110, -70):
-        lab[np.hypot(lon - elon, lat - 5) < 9] = 3
+        lab[np.hypot(lon - elon, lat - 5) < 9] = BLACK
     return lab
 
 
@@ -128,10 +134,10 @@ def _shapes(scale: float = 1.0, max_edge: float = 0.8):
     s = 30.0 * scale
     shapes = []
     v, f = subdivide(*cube_mesh(s), max_edge)
-    shapes.append(("cube", v, f, 2, lambda c, n: paint_cube(c, n, s)))
+    shapes.append(("cube", v, f, BLUE, lambda c, n: paint_cube(c, n, s)))
     hgt = 25.0 * scale
     v, f = subdivide(*pyramid_mesh(s, hgt), max_edge)
-    shapes.append(("pyramid", v, f, 3, lambda c, n: paint_pyramid(c, n, hgt)))
+    shapes.append(("pyramid", v, f, BLACK, lambda c, n: paint_pyramid(c, n, hgt)))
     r = 15.0 * scale
     v, f = sphere_mesh(r)
     v, f = subdivide(v, f, max_edge, project=lambda p: p / np.linalg.norm(p, axis=1, keepdims=True) * r)
@@ -139,7 +145,7 @@ def _shapes(scale: float = 1.0, max_edge: float = 0.8):
     from .depth import from_manifold, to_manifold
 
     v, f = from_manifold(to_manifold(v + [0, 0, r], f).trim_by_plane((0.0, 0.0, 1.0), 2.0 * scale).translate((0, 0, -2.0 * scale)))
-    shapes.append(("sphere", v, f, 1, lambda c, n: paint_sphere(c - [0, 0, r - 2.0 * scale], r)))
+    shapes.append(("sphere", v, f, GREEN, lambda c, n: paint_sphere(c - [0, 0, r - 2.0 * scale], r)))
     return shapes
 
 
@@ -221,7 +227,16 @@ def write(path: str | Path, template: str | Path | None = None, scale: float = 1
         + f'\n  <plate>\n    <metadata key="plater_id" value="1"/>\n    <metadata key="locked" value="false"/>{plate_extra}\n{plate}\n  </plate>\n</config>\n'
     )
     if tmpl_settings:
-        files["Metadata/project_settings.config"] = tmpl_settings
+        cfg = json.loads(tmpl_settings)
+        n = len(cfg.get("filament_colour", []))
+        if n != len(COLORS):
+            from .depth import log
+
+            log(f"warning: template has {n} filament slots, the test plate expects {len(COLORS)} (see module docstring)")
+        for k in ("filament_colour", "filament_multi_colour"):
+            if k in cfg and len(cfg[k]) == len(COLORS):
+                cfg[k] = COLORS
+        files["Metadata/project_settings.config"] = json.dumps(cfg, indent=4)
     else:
         files["Metadata/project_settings.config"] = json.dumps({"filament_colour": COLORS, "filament_type": TYPES}, indent=4)
     files["[Content_Types].xml"] = (

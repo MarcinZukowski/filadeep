@@ -59,7 +59,9 @@ Profiled: ~80% is KD-tree distance queries over the voxel grid.
 ## Features from IDEA.md
 - **#1 core** and **#3 shell** have first versions (`layerfun core`, `layerfun shell`).
   Open points:
-  - Print time: test plate 5h 51m → core 8h 58m, shell 9h 54m. Both add one more
+  - Shell bakes paint into solid color parts first (as `depth`): Bambu drops paint
+    on faces that aren't the object's outside, so under a shell it vanished.
+  - Print time: test plate 5h 51m → core 8h 58m, shell 11h 33m (with baked colors). Both add one more
     filament to nearly every layer (= one more change + purge per layer). Inherent
     to the idea, but worth reporting up front, and per-part settings (e.g. core as
     sparse infill only, no walls) could claw some back.
@@ -75,8 +77,11 @@ Profiled: ~80% is KD-tree distance queries over the voxel grid.
 - **Web interface**: manifold3d has a WASM build; keep the core a library.
 
 ## Test plate
-`layerfun testmodel -o models/testshapes.3mf --template models/kitsune-black.3mf`
-writes a cube/pyramid/sphere plate covering dark-on-light, light-on-dark, thin
+`layerfun testmodel -o models/testshapes.3mf --template models/template-h2c.3mf`
+uses 5 slots (H2C: 4 AMS + side feed): 1 black PLA-CF (paint + core), 2 green,
+3 light blue, 4 white (paint + primer), 5 translucent PLA (shell). Derived files:
+`depth`, `core --filament 1`, `core --filament 1 --primer 4 --skin 1.0`,
+`shell --filament 5`. It writes a cube/pyramid/sphere plate covering dark-on-light, light-on-dark, thin
 lines, sloped/near-horizontal paint. `--template` copies the slicer settings,
 Application tag and nozzle map from a real Bambu project (without it Bambu slices
 with its defaults and ignores the paint). ~12–27 s per command vs ~45–90 s for the

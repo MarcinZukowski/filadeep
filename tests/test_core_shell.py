@@ -32,11 +32,15 @@ def test_core_uniform_skin(painted_cube, tmp_path):
     assert sorted(p.extruder or 0 for p in threemf.load(out).objects[0].parts) == [1, 2, 3]
 
 
-def test_shell_keeps_paint_and_trims_bottom(painted_cube, tmp_path):
+def test_shell_bakes_paint_and_trims_bottom(painted_cube, tmp_path):
     proj = threemf.load(painted_cube)
     repl = shell.process(proj, filament=4, thickness=1.0, voxel=0.25)
-    ((_, (keep, sh)),) = repl.items()
-    assert keep.paint == proj.objects[0].parts[0].mesh.paint
+    ((_, parts),) = repl.items()
+    *colors, sh = parts
+    # Paint under a shell is ignored by the slicer, so it must become solid parts.
+    assert sorted(p.extruder for p in colors) == [1, 2]
+    assert all(p.paint is None for p in colors)
+    assert sum(_vol(p) for p in colors) == pytest.approx(8000, rel=1e-3)
     a, t = 20.0, 1.0
     # Steiner formula for a box offset by t, minus everything below the base.
     full = a**3 + 6 * a * a * t + 3 * math.pi * a * t * t + 4 / 3 * math.pi * t**3
@@ -46,8 +50,8 @@ def test_shell_keeps_paint_and_trims_bottom(painted_cube, tmp_path):
     out = tmp_path / "out.3mf"
     write3mf.replace_parts(proj, out, repl)
     back = threemf.load(out).objects[0]
-    assert sorted(back.part_extruder(p) for p in back.parts) == [1, 4]
-    assert sum(p.mesh.painted_count for p in back.parts) == 2  # paint kept on the original part
+    assert sorted(back.part_extruder(p) for p in back.parts) == [1, 2, 4]
+    assert sum(p.mesh.painted_count for p in back.parts) == 0
 
 
 def test_testmodel(tmp_path):

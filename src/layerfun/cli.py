@@ -132,7 +132,7 @@ def cmd_shell(args: argparse.Namespace) -> None:
     _check_filament(proj, args.filament)
     out = _out(args, "shell")
     repl = shell.process(proj, args.filament, args.thickness, voxel=args.voxel, trim_bottom=not args.keep_bottom,
-                         object_name=args.object)  # fmt: skip
+                         object_name=args.object, depth_overrides=_parse_depths(args.depth))  # fmt: skip
     if not repl:
         raise SystemExit("no objects selected")
     _warn_materials(proj, repl)
@@ -192,6 +192,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--filament", type=int, required=True, help="filament slot for the shell (must exist in the project)")
     p.add_argument("--thickness", type=float, default=1.0, help="shell thickness in mm (default 1.0)")
     p.add_argument("--keep-bottom", action="store_true", help="also cover the bottom (default: cut flat at the model's base)")
+    p.add_argument("--depth", help="per-filament color depth overrides in mm, e.g. 3=0.4 (paint becomes solid parts, as in 'depth')")
     p.add_argument("--object", help="only objects whose name contains this (default: painted objects, else all)")
     p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
     p.add_argument("-o", "--out", help="output 3MF (default: <file>-shell.3mf)")

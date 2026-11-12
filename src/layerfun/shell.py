@@ -1,8 +1,12 @@
 """Outer shell: a layer of another filament wrapped around the model.
 
 Use case: e.g. 1 mm of PVB around a print, smoothed with alcohol afterwards.
-The original parts (and their paint) are kept as they are; the shell is added
-as a new part of the same object.
+The shell is added as a new part of the same object.
+
+Paint must be turned into solid parts first: Bambu/Orca only apply paint where
+the painted surface is the object's outside, and under the shell it no longer
+is (the paint is silently dropped when slicing). So painted parts go through
+depth.process (per-color depth) before the shell is added.
 
     band  = { x : distance(x, surface) < t }      (both sides of the surface)
     outer = band ∪ body                            (body offset outward by t)
@@ -79,13 +83,15 @@ def build_shell(
     return from_manifold(shell)
 
 
-def process(project, filament: int, thickness: float, voxel: float = 0.25, trim_bottom: bool = True, object_name: str | None = None):
+def process(project, filament: int, thickness: float, voxel: float = 0.25, trim_bottom: bool = True,
+            object_name: str | None = None, depth_overrides: dict[int, float] | None = None):  # fmt: skip
     """Add a shell part to each selected object. Returns replacements for write3mf.replace_parts."""
-    from . import threemf
+    from . import depth, threemf
     from .depth import select_objects
     from .write3mf import NewPart
 
-    replacements = {}
+    # Painted parts -> solid color parts (the paint would be hidden from the slicer).
+    replacements = depth.process(project, depth_overrides, voxel=voxel, object_name=object_name)
     for obj in select_objects(project, object_name):
         parts = [p for p in obj.parts if p.subtype == "normal_part"]
         if not parts:
@@ -99,10 +105,12 @@ def process(project, filament: int, thickness: float, voxel: float = 0.25, trim_
         if res is None:
             continue
         # Attach the shell next to the first part (same component transform),
-        # and keep that part exactly as it was, paint included.
+        # after its color parts, or the unchanged part if it had no paint.
         first = parts[0]
         Winv = np.linalg.inv(first.transform @ obj.transform)
-        keep = NewPart(first.name, obj.part_extruder(first), first.mesh.vertices, first.mesh.faces, paint=first.mesh.paint)
+        keep = replacements.get((obj.id, first.id)) or [
+            NewPart(first.name, obj.part_extruder(first), first.mesh.vertices, first.mesh.faces, paint=first.mesh.paint)
+        ]
         shell = NewPart(f"{obj.name} shell", filament, threemf.apply_transform(res[0], Winv), res[1])
-        replacements[(obj.id, first.id)] = [keep, shell]
+        replacements[(obj.id, first.id)] = keep + [shell]
     return replacements
