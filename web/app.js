@@ -15,7 +15,15 @@ const $ = (id) => document.getElementById(id);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 5000);
 camera.up.set(0, 0, 1);
 const target = new THREE.Vector3();
-const clip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0); // keeps z <= constant
+// Layer cut: everything between a bottom and a top height stays visible (like the
+// slicer's preview range). An inactive plane sits far away, so it clips nothing.
+const FAR = 1e6;
+const clipTop = new THREE.Plane(new THREE.Vector3(0, 0, -1), FAR); // keeps z <= top
+const clipBot = new THREE.Plane(new THREE.Vector3(0, 0, 1), FAR); // keeps z >= bottom
+const BOTH = [clipTop, clipBot];
+const cut = { lo: 0, hi: 1 }; // slider positions as fractions of sliceBox's height
+const cutTop = () => cut.hi < 1;
+const cutBot = () => cut.lo > 0;
 
 class View {
   constructor(canvas) {
@@ -23,6 +31,7 @@ class View {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setClearColor(0x16181c);
+    this.renderer.localClippingEnabled = true; // planes are set per material (see partMesh)
     this.scene = new THREE.Scene();
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x444450, 2.2));
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6); // follows the camera, see render()
@@ -50,14 +59,17 @@ class View {
     for (const o of objs) this.content.add(o);
     this.version++;
   }
-  /** Line segments where the cut plane crosses each part's triangles. */
+  /** Line segments where the active cut planes cross each part's triangles. */
   updateOutline(on) {
-    const key = on ? `${clip.constant}|${this.version}` : "off";
+    // [cut height, height to draw at: just inside the slab, above/below the cap]
+    const cuts = [];
+    if (on && cutTop()) cuts.push([clipTop.constant, clipTop.constant - 5e-4]);
+    if (on && cutBot()) cuts.push([-clipBot.constant, -clipBot.constant + 5e-4]);
+    const key = `${cuts.map((c) => c[0]).join(",")}|${this.version}`;
     if (key === this.outlineKey) return;
     this.outlineKey = key;
     const pos = [], col = [];
-    if (on) {
-      const z = clip.constant, zl = z - 5e-4; // just above the cap, below the clip
+    for (const [z, zl] of cuts) {
       for (const group of this.content.children) {
         if (!group.visible) continue;
         const g = group.children[0].geometry;
@@ -99,9 +111,8 @@ class View {
     // Headlight, slightly from above.
     this.sun.position.copy(camera.position).add(new THREE.Vector3(0, 0, camera.position.distanceTo(target) * 0.5));
     this.sun.target.position.copy(target);
-    const on = $("sliceOn").checked;
+    const top = cutTop(), bot = cutBot(), on = top || bot;
     const hl = $("hl").value;
-    this.renderer.clippingPlanes = on ? [clip] : [];
     this.updateOutline(on && hl !== "off");
     this.outline.material.resolution.set(w, h);
     this.outline.visible = on && hl !== "off";
@@ -117,10 +128,11 @@ class View {
     }
     const c = sliceBox.getCenter(new THREE.Vector3()), size = sliceBox.getSize(new THREE.Vector3());
     this.content.traverse((o) => {
-      if (!o.userData.sliceOnly) return;
-      o.visible = on;
+      const side = o.userData.cut;
+      if (!side) return;
+      o.visible = side === "top" ? top : bot;
       if (o.userData.cap) {
-        o.position.set(c.x, c.y, clip.constant - 1e-3);
+        o.position.set(c.x, c.y, side === "top" ? clipTop.constant - 1e-3 : -clipBot.constant + 1e-3);
         o.scale.set(size.x * 2 + 10, size.y * 2 + 10, 1);
       }
     });
@@ -190,31 +202,37 @@ function partMesh(geometry, hex, vertexColors = false) {
   const group = new THREE.Group();
   const front = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     vertexColors, color: vertexColors ? 0xffffff : color, roughness: 0.75, metalness: 0, flatShading: true,
-    transparent: alpha < 1, opacity: alpha, depthWrite: alpha >= 1,
+    transparent: alpha < 1, opacity: alpha, depthWrite: alpha >= 1, clippingPlanes: BOTH,
   }));
   front.renderOrder = alpha < 1 ? 1e6 : 0;
-  const k = ++slot * 3;
-  const stencil = (side, op) => {
-    const m = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-      side, depthWrite: false, depthTest: false, colorWrite: false,
-      stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op,
+  group.add(front);
+  // One stencil pass + cap per cut plane. As in three.js's clipping example, the
+  // stencil meshes are clipped by their own plane only, the cap by the other one.
+  const k = ++slot * 4;
+  for (const [i, side, own, other] of [[0, "top", clipTop, clipBot], [2, "bot", clipBot, clipTop]]) {
+    const stencil = (faces, op) => {
+      const m = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+        side: faces, depthWrite: false, depthTest: false, colorWrite: false, clippingPlanes: [own],
+        stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op,
+      }));
+      m.renderOrder = k + i;
+      m.userData.cut = side;
+      return m;
+    };
+    const cap = new THREE.Mesh(capGeometry, new THREE.MeshBasicMaterial({
+      // Opaque even for translucent filaments: transparent objects render in a
+      // later pass, after the stencil state of this part is gone.
+      color: color.clone().multiplyScalar(0.9), clippingPlanes: [other],
+      stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
+      stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp,
     }));
-    m.renderOrder = k;
-    m.userData.sliceOnly = true;
-    return m;
-  };
-  const cap = new THREE.Mesh(capGeometry, new THREE.MeshBasicMaterial({
-    // Opaque even for translucent filaments: transparent objects render in a
-    // later pass, after the stencil state of this part is gone.
-    color: color.clone().multiplyScalar(0.9),
-    stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
-    stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp,
-  }));
-  cap.renderOrder = k + 1;
-  cap.userData.cap = true;
-  cap.userData.sliceOnly = true;
-  cap.onAfterRender = (r) => r.clearStencil();
-  group.add(front, stencil(THREE.BackSide, THREE.IncrementWrapStencilOp), stencil(THREE.FrontSide, THREE.DecrementWrapStencilOp), cap);
+    if (side === "bot") cap.rotation.x = Math.PI; // faces down, seen from below
+    cap.renderOrder = k + i + 1;
+    cap.userData.cap = true;
+    cap.userData.cut = side;
+    cap.onAfterRender = (r) => r.clearStencil();
+    group.add(stencil(THREE.BackSide, THREE.IncrementWrapStencilOp), stencil(THREE.FrontSide, THREE.DecrementWrapStencilOp), cap);
+  }
   return group;
 }
 
@@ -240,30 +258,124 @@ document.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => frame
 
 let sliceBox = new THREE.Box3(); // source and output together
 
-/** Extend the slider's range (e.g. a shell makes the output taller), keeping the cut where it is. */
-function setSliceRange(box) {
-  const z = clip.constant;
-  const had = !sliceBox.isEmpty() && $("sliceOn").checked;
+/** Set the sliders' range (e.g. a shell makes the output taller), keeping the cuts at their heights. */
+function setSliceRange(box, reset = false) {
+  const old = sliceBox;
   sliceBox = box.clone();
-  if (had) $("slice").value = String(Math.min(100, Math.max(0, ((z - box.min.z) / (box.max.z - box.min.z)) * 100)));
+  if (reset || old.isEmpty()) {
+    cut.lo = 0;
+    cut.hi = 1;
+  } else {
+    const h = sliceBox.max.z - sliceBox.min.z || 1;
+    const conv = (f) => Math.min(1, Math.max(0, (old.min.z + f * (old.max.z - old.min.z) - sliceBox.min.z) / h));
+    if (cutBot()) cut.lo = conv(cut.lo);
+    if (cutTop()) cut.hi = conv(cut.hi);
+  }
   updateSlice();
 }
 
+const zAt = (f) => sliceBox.min.z + (sliceBox.max.z - sliceBox.min.z) * f;
+
 function updateSlice() {
-  const z0 = sliceBox.min.z, z1 = sliceBox.max.z;
-  const t = +$("slice").value / 100;
-  const z = z0 + (z1 - z0) * t;
-  clip.constant = z;
-  $("sliceZ").textContent = sliceBox.isEmpty() ? "–" : `z ${z.toFixed(2)} mm`;
+  clipTop.constant = cutTop() ? zAt(cut.hi) : FAR;
+  clipBot.constant = cutBot() ? -zAt(cut.lo) : FAR;
+  const empty = sliceBox.isEmpty();
+  for (const s of sliders) s.update(empty);
+  $("sliceZ").textContent = empty || !(cutTop() || cutBot()) ? "no cut" : `z ${zAt(cut.lo).toFixed(2)} – ${zAt(cut.hi).toFixed(2)} mm`;
+  $("cutReset").hidden = empty || !(cutTop() || cutBot());
   renderAll();
 }
-$("slice").oninput = () => {
-  $("sliceOn").checked = true;
+
+/** Vertical two-handle slider over the right edge of a view; all instances share `cut`. */
+class CutSlider {
+  constructor(view) {
+    const el = document.createElement("div");
+    el.className = "zslider";
+    el.dataset.tip = "Layer range. Drag the top handle down to cut from above, the bottom handle up to cut from below; the cut faces show each part's filament color. Both views follow. Double-click a handle to reset it; arrow keys move the focused handle (Shift: faster).";
+    el.innerHTML = '<div class="track"><div class="range"></div></div>' +
+      '<div class="handle" data-k="hi" tabindex="0"><span></span></div><div class="handle" data-k="lo" tabindex="0"><span></span></div>';
+    view.append(el);
+    this.el = el;
+    this.track = el.querySelector(".track");
+    this.range = el.querySelector(".range");
+    this.handles = { hi: el.querySelector('[data-k="hi"]'), lo: el.querySelector('[data-k="lo"]') };
+    const fracAt = (y) => {
+      const r = this.track.getBoundingClientRect();
+      return Math.min(1, Math.max(0, 1 - (y - r.top) / r.height));
+    };
+    const drag = (k, e, off = 0) => {
+      el.setPointerCapture(e.pointerId);
+      el.classList.add("dragging");
+      const move = (ev) => setCut(k, fracAt(ev.clientY - off));
+      const up = () => {
+        el.removeEventListener("pointermove", move);
+        el.classList.remove("dragging");
+      };
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up, { once: true });
+      el.addEventListener("pointercancel", up, { once: true });
+      move(e);
+    };
+    // Double-click is detected here: pointer capture during the drag sends the
+    // browser's dblclick event to the container, not the handle.
+    let last = { k: "", t: 0 };
+    for (const [k, h] of Object.entries(this.handles)) {
+      h.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        h.focus();
+        const now = performance.now();
+        if (last.k === k && now - last.t < 400) {
+          last = { k: "", t: 0 };
+          setCut(k, k === "hi" ? 1 : 0);
+          return;
+        }
+        last = { k, t: now };
+        // A plain click shouldn't nudge the handle: drag relative to where it was grabbed.
+        const r = this.track.getBoundingClientRect();
+        const off = e.clientY - (r.bottom - cut[k] * r.height);
+        drag(k, e, off);
+      });
+      h.addEventListener("keydown", (e) => {
+        const step = (e.shiftKey ? 0.05 : 0.005) * (e.key === "ArrowUp" ? 1 : e.key === "ArrowDown" ? -1 : 0);
+        if (!step) return;
+        e.preventDefault();
+        setCut(k, cut[k] + step);
+      });
+    }
+    // Clicking the track moves the nearer handle there.
+    this.track.parentElement.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".handle")) return;
+      e.preventDefault();
+      const f = fracAt(e.clientY);
+      drag(Math.abs(f - cut.hi) <= Math.abs(f - cut.lo) ? "hi" : "lo", e);
+    });
+  }
+  update(empty) {
+    this.el.hidden = empty;
+    if (empty) return;
+    this.range.style.bottom = `${cut.lo * 100}%`;
+    this.range.style.top = `${(1 - cut.hi) * 100}%`;
+    for (const [k, h] of Object.entries(this.handles)) {
+      h.style.bottom = `${cut[k] * 100}%`;
+      h.firstChild.textContent = zAt(cut[k]).toFixed(2);
+      h.classList.toggle("active", k === "hi" ? cutTop() : cutBot());
+    }
+  }
+}
+
+const GAP = 0.002; // handles can't cross
+function setCut(k, f) {
+  f = Math.min(1, Math.max(0, f));
+  cut[k] = k === "hi" ? Math.max(f, cut.lo + GAP) : Math.min(f, cut.hi - GAP);
   updateSlice();
-};
-$("sliceOn").onchange = updateSlice;
-$("hl").onchange = () => {
-  $("sliceOn").checked = true;
+}
+
+const sliders = [...document.querySelectorAll(".view")].map((v) => new CutSlider(v));
+$("hl").onchange = updateSlice;
+$("cutReset").onclick = () => {
+  cut.lo = 0;
+  cut.hi = 1;
   updateSlice();
 };
 
@@ -405,7 +517,7 @@ function showSource(proj) {
   if (!$("shellF").dataset.want && !$("shellF").dataset.touched) $("shellF").value = String(n);
   $("run").disabled = false;
   estimate();
-  setSliceRange(box);
+  setSliceRange(box, true);
   frameView("iso");
 }
 

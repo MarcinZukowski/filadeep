@@ -39,14 +39,13 @@ label.file input { display: none; }
 .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .tag { position: absolute; left: 10px; top: 8px; color: var(--muted); pointer-events: none; }
 .row .right { margin-left: auto; }
-.logpanel { position: absolute; top: 8px; right: 8px; width: min(620px, calc(100% - 16px)); max-height: 60%; display: flex; flex-direction: column;
+.logpanel { position: absolute; top: 8px; right: 52px; width: min(620px, calc(100% - 60px)); max-height: 60%; display: flex; flex-direction: column;
   background: #0d0f12ee; border: 1px solid #3a404a; border-radius: 8px; box-shadow: 0 6px 20px #0009; z-index: 2; }
 .logpanel[hidden] { display: none; }
 .loghead { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); }
 .loghead button { padding: 1px 8px; font-size: 12px; }
 pre#log { overflow: auto; font-size: 11px; line-height: 1.4; max-height: calc(10 * 1.4em + 12px); margin: 0; padding: 6px 10px; color: #c6ccd4; white-space: pre; }
 .mono { font-family: ui-monospace, monospace; min-width: 70px; }
-#slice { flex: 0 1 420px; }
 .drop main { outline: 2px dashed var(--accent); outline-offset: -6px; }
 @media (max-width: 800px) { main { grid-template-columns: 1fr; grid-template-rows: auto 40vh auto 40vh; grid-auto-flow: row; } }
 .progress { position: relative; height: 20px; border: 1px solid transparent; border-radius: 5px; overflow: hidden; margin: 4px 0 6px; }
@@ -61,3 +60,15 @@ pre#log { overflow: auto; font-size: 11px; line-height: 1.4; max-height: calc(10
 .estimate.warn { color: #e8b44c; }
 #outLegend { min-height: 26px; } /* reserved: chips appear after a run without moving the views */
 button.active { border-color: var(--accent); color: #fff; }
+/* Layer range slider over each view's right edge (two handles, shared by both views). */
+.zslider { position: absolute; right: 10px; top: 34px; bottom: 26px; width: 26px; z-index: 1; touch-action: none; cursor: pointer; }
+.zslider[hidden] { display: none; }
+.zslider .track { position: absolute; left: 50%; top: 0; bottom: 0; width: 4px; transform: translateX(-50%); background: #3a404a; border-radius: 2px; }
+.zslider .range { position: absolute; left: 0; right: 0; background: var(--accent); border-radius: 2px; opacity: .55; }
+.zslider .handle { position: absolute; left: 50%; width: 18px; height: 10px; transform: translate(-50%, 50%); border-radius: 4px; background: #c9cfd8; border: 1px solid #0009; cursor: ns-resize; outline: none; }
+.zslider .handle.active, .zslider .handle:focus-visible { background: var(--accent); border-color: #fff; }
+.zslider .handle span { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); font: 11px ui-monospace, monospace; color: var(--text); background: #0d0f12cc;
+  padding: 1px 5px; border-radius: 4px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .15s; }
+.zslider:hover .handle span, .zslider.dragging .handle span, .zslider .handle.active span, .zslider .handle:focus span { opacity: 1; }
+button.small { padding: 1px 8px; font-size: 12px; }
+button[hidden] { display: none; }

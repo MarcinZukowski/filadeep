@@ -88,12 +88,11 @@
 </main>
 
 <footer>
-  <label data-tip="Cut both views at a height to see what's inside, like a layer in the slicer's preview."><input id="sliceOn" type="checkbox"> layer</label>
-  <input id="slice" type="range" data-tip="Cut height. Below the cut, each part is shown filled in its filament color." min="0" max="100" step="0.01" value="100">
-  <select id="hl" data-tip="How to highlight the cut layer. Outline: draw the outline of every cut piece at the cut height. Outline + dim: also darken the rest of the model so the cut stands out.">
+  <label data-tip="How to highlight the cut layers (set the range with the sliders on the right edge of the views). Outline: draw the outline of every cut piece at the cut height. Outline + dim: also darken the rest of the model so the cut stands out.">cut <select id="hl">
     <option value="outline">outline</option><option value="dim">outline + dim</option><option value="off">no highlight</option>
-  </select>
-  <span id="sliceZ" class="mono" data-tip="Height of the cut above the build plate.">–</span>
+  </select></label>
+  <span id="sliceZ" class="mono" data-tip="Visible height range (above the build plate). Use the sliders on the right edge of the views.">–</span>
+  <button id="cutReset" class="small" hidden data-tip="Remove both cuts: show the whole model again.">reset</button>
   <span class="grow"></span>
   <button data-view="iso" data-tip="Reset to the 3/4 view, fitted to the model.">iso</button><button data-view="front" data-tip="Look from the front.">front</button><button data-view="back" data-tip="Look from the back.">back</button>
   <button data-view="left" data-tip="Look from the left.">left</button><button data-view="right" data-tip="Look from the right.">right</button><button data-view="top" data-tip="Look from the top.">top</button>
