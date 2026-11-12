@@ -526,7 +526,6 @@ async function setSource(bytes, name, url = null) {
   try {
     const proj = load(new Uint8Array(bytes), name);
     source = { proj, bytes, name, url };
-    $("srcUrl").value = url || "";
     showSource(proj);
     $("status").textContent = "";
     result = null;
@@ -550,8 +549,12 @@ async function loadUrl(url) {
   }
 }
 
-$("loadUrl").onclick = () => $("srcUrl").value && loadUrl($("srcUrl").value.trim());
-$("srcUrl").onkeydown = (e) => e.key === "Enter" && $("loadUrl").click();
+$("openUrl").onclick = async () => {
+  const url = prompt("Web address of a .3mf file (the server must allow CORS):", source?.url ?? "")?.trim();
+  if (!url) return;
+  await loadUrl(url);
+  syncHash();
+};
 $("srcFile").onchange = async (e) => {
   const f = e.target.files[0];
   if (f) await setSource(await f.arrayBuffer(), f.name);
@@ -612,7 +615,7 @@ function syncHash() {
 }
 document.querySelectorAll(".controls input, .controls select").forEach((el) => el.addEventListener("change", () => {
   if (el.id === "shellF") el.dataset.touched = "1";
-  if (el.id !== "srcFile" && el.id !== "srcUrl") syncHash();
+  if (el.id !== "srcFile") syncHash();
   estimate();
 }));
 

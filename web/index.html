@@ -23,14 +23,11 @@
     <div class="controls">
       <h2 data-tip="The painted model you start from, shown with its paint.">Source</h2>
       <div class="row">
-        <input id="srcUrl" type="url" data-tip="Web address of a .3mf file. The server must allow cross-site downloads (CORS); raw GitHub links work, most model sites don't, so download those and use Open file." placeholder="https://…/model.3mf (must allow CORS)">
-        <button id="loadUrl" data-tip="Download and show the model from the address on the left.">Load</button>
-      </div>
-      <div class="row">
-        <label class="file" data-tip="Open a .3mf from your computer. It stays in your browser; nothing is uploaded.">Open file…<input id="srcFile" type="file" accept=".3mf"></label>
-        <span class="hint">or drop a .3mf anywhere</span>
-        <a href="#src=/models/testshapes.3mf" id="example" class="hint" data-tip="Load the cube / pyramid / sphere test plate (only when running the local dev server).">test plate</a>
-        <a href="#src=/models/penguin.3mf&core=3&primer=4" id="example2" class="hint" data-tip="Load the penguin example: black pupils on white, thin yellow eyebrows on black, a white belly (only when running the local dev server).">penguin</a>
+        <label class="file" data-tip="Open a .3mf from your computer (or drop one anywhere on the page). It stays in your browser; nothing is uploaded.">Open file…<input id="srcFile" type="file" accept=".3mf"></label>
+        <button id="openUrl" data-tip="Load a .3mf from a web address. The server must allow cross-site downloads (CORS): raw GitHub links work, most model sites don't, so download those and use Open file. A model loaded this way is included in Copy link.">Open URL…</button>
+        <span class="hint demos">Demos:
+          <a href="#src=/models/testshapes.3mf" data-tip="Cube, pyramid and sphere with thin and thick painted details.">test plate</a> ·
+          <a href="#src=/models/penguin.3mf&core=3&primer=4" data-tip="A penguin: black pupils on white, thin yellow eyebrows on black, a white belly. Loads with a black core and white primer selected.">penguin</a></span>
       </div>
       <div id="srcInfo" class="info" data-tip="Objects, triangle count, how many triangles carry paint, the slicer that saved the file, and its number of filament slots."></div>
       <div id="srcLegend" class="legend"></div>

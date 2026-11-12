@@ -17,7 +17,6 @@ main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-row
 .panel { display: contents; }
 .controls { padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); max-height: 46vh; overflow: auto; min-width: 0; }
 .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
-.row input[type=url] { flex: 1; min-width: 200px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 legend { color: var(--muted); padding: 0 4px; }
@@ -72,3 +71,4 @@ button.active { border-color: var(--accent); color: #fff; }
 .zslider:hover .handle span, .zslider.dragging .handle span, .zslider .handle.active span, .zslider .handle:focus span { opacity: 1; }
 button.small { padding: 1px 8px; font-size: 12px; }
 button[hidden] { display: none; }
+.demos a { color: var(--text); }
