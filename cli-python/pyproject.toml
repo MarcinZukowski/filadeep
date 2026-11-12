@@ -3,6 +3,7 @@ name = "filadeep"
 version = "0.1.0"
 description = "Modify painted multi-color 3MF files for better color prints"
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Marcin Zukowski", email = "marcin.zukowski@gmail.com" }
 ]
