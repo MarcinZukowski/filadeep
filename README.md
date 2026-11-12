@@ -12,9 +12,17 @@ goes, and it often gets it wrong:
 - **Dark details go too deep.** On a model in light or translucent colors, a
   dark detail such as an eye is sliced far into the body. The dark plastic then
   shows through the light plastic around it.
+
+  <a href="img/Deep%20plastic.png"><img src="img/Deep%20plastic.png" width="160" alt="Sliced layer: the black eyes reach deep into the light green head"></a>
+
 - **Light details stay too shallow.** On a dark model, a light accent is printed
   only one layer thick. That isn't enough to cover the dark plastic behind it,
   so the accent looks dull.
+
+  <a href="img/Shallow%20plastic%20-%20model.png"><img src="img/Shallow%20plastic%20-%20model.png" width="160" alt="Painted model with a light green swirl on black"></a>
+  <a href="img/Shallow%20plastic%20-%20print.png"><img src="img/Shallow%20plastic%20-%20print.png" width="160" alt="Sliced preview: the swirl is one thin layer"></a>
+
+  Painted model (left) and its sliced preview (right).
 
 Two more things are hard to do with paint alone: printing the inside in a
 different material from the colored outside, and adding a layer of another
