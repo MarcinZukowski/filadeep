@@ -78,7 +78,28 @@ Ideas left:
     Test plate with core + primer: 14h 55m vs 5h 51m (two extra filaments/layer).
   - Core: the skin follows every surface including the bottom; maybe allow
     "no skin on the bottom face" (invisible anyway, saves changes on early layers).
-- **Web interface**: manifold3d has a WASM build; keep the core a library.
+- **Web interface**: prototype JS port in `web/` (`node web/bench.mjs in.3mf out.3mf`),
+  same results as Python (Bambu: identical tool changes, print time within seconds).
+  - Black kitsune: 36 s single-threaded JS vs 20 s Python (16 threads); test plate 4.1 s vs 3.8 s.
+  - Bottleneck: manifold's WASM build is single-threaded and the 8.1M-triangle
+    marching-tets shell costs 10 s (build + simplify) and ~4.5 GB of WASM memory,
+    over the browser's 4 GB limit. Fix: fewer triangles before manifold (chunked
+    build/simplify, or own pre-simplification).
+  - Field: Web Workers (like Python's threads), ~8 s -> ~2 s expected.
+  - KD-tree: own plain-JS tree is on par with scipy's C++ per thread. If it ever
+    becomes the bottleneck, there are WASM KD-tree libraries (batch the queries;
+    per-query JS<->WASM calls would eat the gain).
+  - manifold-3d JS takes float32 vertices only; no visible effect in Bambu.
+
+## Heavy input meshes
+For very dense inputs (scans/sculpts, millions of triangles; e.g. kitsune.3mf), the
+booleans against the full body would dominate. Idea: simplify the body within
+same-paint regions (paint boundaries fixed, small tolerance), do the work, then
+restore full detail on the outer surface. Manifold tracks which output triangles
+come from which input face, but restoring means re-cutting the original patches
+along the color walls (a boolean on the full mesh again); details to decide.
+Not useful for the current bottleneck (the isosurface size depends on the grid
+and painted area, not on the input triangle count).
 
 ## Test plate
 `layerfun testmodel -o models/testshapes.3mf --template models/template-h2c.3mf`

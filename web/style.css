@@ -1,0 +1,47 @@
+:root {
+  --bg: #16181c; --panel: #1e2126; --line: #2e333b; --text: #e3e6ea; --muted: #8b939e; --accent: #4f8cff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; }
+header, footer { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+footer { border-top: 1px solid var(--line); border-bottom: 0; }
+h1 { font-size: 16px; margin: 0; }
+h2 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.sub, .hint { color: var(--muted); }
+.grow { flex: 1; }
+/* Panels dissolve into one 2x2 grid so both control blocks share a row height
+   and both views are exactly the same size (they share one camera). */
+main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; grid-auto-flow: column; min-height: 0; }
+.panel { display: contents; }
+.controls { padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); max-height: 46vh; overflow: auto; min-width: 0; }
+.row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+.row input[type=url] { flex: 1; min-width: 200px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+legend { color: var(--muted); padding: 0 4px; }
+fieldset label { display: flex; align-items: center; gap: 6px; }
+input, select, button { font: inherit; color: var(--text); background: #262a31; border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; }
+input[type=number] { width: 64px; }
+input[type=checkbox] { accent-color: var(--accent); }
+button { cursor: pointer; padding: 4px 10px; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+label.file { cursor: pointer; padding: 4px 10px; border: 1px solid var(--line); border-radius: 5px; background: #262a31; }
+label.file input { display: none; }
+.info { color: var(--muted); white-space: pre-wrap; font-size: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.legend label { display: flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid #0008; display: inline-block; }
+.view { position: relative; min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
+.view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.tag { position: absolute; left: 10px; top: 8px; color: var(--muted); pointer-events: none; }
+pre#log { max-height: 160px; overflow: auto; font-size: 11px; margin: 4px 0 0; color: var(--muted); }
+.mono { font-family: ui-monospace, monospace; min-width: 70px; }
+#slice { flex: 0 1 420px; }
+.drop main { outline: 2px dashed var(--accent); outline-offset: -6px; }
+@media (max-width: 800px) { main { grid-template-columns: 1fr; grid-template-rows: auto 40vh auto 40vh; grid-auto-flow: row; } }
+.progress { position: relative; height: 20px; border: 1px solid var(--line); border-radius: 5px; background: #262a31; overflow: hidden; margin: 4px 0 6px; }
+.progress .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #2f5fc4, var(--accent)); transition: width .15s linear; }
+.progress .ptext { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-shadow: 0 1px 2px #000a; }

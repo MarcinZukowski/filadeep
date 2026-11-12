@@ -19,3 +19,20 @@ Each command writes `<file>-<command>.3mf` (or `-o`). Filament slots must alread
 in the Bambu project. Parked ideas and open issues: `docs/LATER.md`.
 
 Tests: `uv run pytest`
+
+## Web version (prototype)
+
+A browser port of the same pipeline (JavaScript + manifold's WASM build), with
+side-by-side source/output views, a shared camera and a layer slicer.
+
+```bash
+cd web && npm install && cd ..
+node web/serve.mjs            # http://localhost:8000/
+```
+
+- Load a model from a URL (the server must allow CORS), a file, or drag & drop.
+  Locally, `/models/...` is served from the repo: `http://localhost:8000/#src=/models/testshapes.3mf`
+- Options live in the URL hash; "Copy link" gives a link with the source URL and
+  all settings, e.g. `#src=/models/testshapes.3mf&core=3&primer=4&skin=1.0&shell=5`
+  (add `&run=1` to start processing on load).
+- `node web/bench.mjs in.3mf out.3mf [--core 3 --skin 1 --primer 4] [--shell 5]` runs it in Node.

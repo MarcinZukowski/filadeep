@@ -1,0 +1,13 @@
+{
+  "name": "layerfun-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node bench.mjs"
+  },
+  "dependencies": {
+    "fflate": "0.8.2",
+    "manifold-3d": "3.5.4",
+    "three": "^0.170.0"
+  }
+}
