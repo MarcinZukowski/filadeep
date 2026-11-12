@@ -171,15 +171,24 @@ def _template_bits(template) -> tuple[str, str, str]:
     return settings, app, plate
 
 
-def write(path: str | Path, template: str | Path | None = None, scale: float = 1.0, max_edge: float = 0.8) -> Path:
+def write(path: str | Path, template: str | Path | None = None, scale: float = 1.0, max_edge: float = 0.8, model: str = "shapes") -> Path:
+    """model: "shapes" (cube, pyramid, sphere) or "penguin" (see penguin.py)."""
     path = Path(path)
+    recolor: dict[int, str] = {}  # slot -> colour, replacing the palette's / template's
+    if model == "penguin":
+        from . import penguin
+
+        shapes, recolor = penguin.shapes(scale), penguin.RECOLOR
+    else:
+        shapes = _shapes(scale, max_edge)
+    colors = [recolor.get(i + 1, c) for i, c in enumerate(COLORS)]
     if template:
         tmpl_settings, app, plate_extra = _template_bits(template)
     else:
         tmpl_settings, app, plate_extra = None, "LayerFun", ""
     ns = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"'
     root_objs, items, settings, rels, files = [], [], [], [], {}
-    for i, (name, v, f, default, painter) in enumerate(_shapes(scale, max_edge)):
+    for i, (name, v, f, default, painter) in enumerate(shapes):
         mesh_id, obj_id = 2 * i + 1, 2 * i + 2
         t = v[f]
         n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
@@ -203,7 +212,7 @@ def write(path: str | Path, template: str | Path | None = None, scale: float = 1
             f'    <component p:path="/{objpath}" objectid="{mesh_id}" p:UUID="{uuid.uuid4()}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
             "   </components>\n  </object>"
         )
-        x = 175 + (i - 1) * 45 * scale
+        x = 175 + (i - (len(shapes) - 1) / 2) * 45 * scale
         items.append(f'  <item objectid="{obj_id}" p:UUID="{uuid.uuid4()}" transform="1 0 0 0 1 0 0 0 1 {x:.3f} 160 0" printable="1"/>')
         settings.append(
             f'  <object id="{obj_id}">\n    <metadata key="name" value="{name}"/>\n    <metadata key="extruder" value="{default}"/>\n'
@@ -224,21 +233,28 @@ def write(path: str | Path, template: str | Path | None = None, scale: float = 1
     )
     plate = "\n".join(
         f'    <model_instance>\n      <metadata key="object_id" value="{2 * i + 2}"/>\n      <metadata key="instance_id" value="0"/>\n    </model_instance>'
-        for i in range(3)
+        for i in range(len(shapes))
     )
     files["Metadata/model_settings.config"] = (
         '<?xml version="1.0" encoding="UTF-8"?>\n<config>\n' + "\n".join(settings)
         + f'\n  <plate>\n    <metadata key="plater_id" value="1"/>\n    <metadata key="locked" value="false"/>{plate_extra}\n{plate}\n  </plate>\n</config>\n'
     )
     if tmpl_settings:
-        n = len(json.loads(tmpl_settings).get("filament_colour", []))
+        cfg = json.loads(tmpl_settings)
+        n = len(cfg.get("filament_colour", []))
+        if recolor:
+            for key in ("filament_colour", "filament_multi_colour"):
+                for slot, hex_ in recolor.items():
+                    if slot <= len(cfg.get(key, [])):
+                        cfg[key][slot - 1] = hex_
+            tmpl_settings = json.dumps(cfg, indent=4)
         if n != len(COLORS):
             from .depth import log
 
             log(f"warning: template has {n} filament slots, the test plate expects {len(COLORS)} (see module docstring)")
         files["Metadata/project_settings.config"] = tmpl_settings
     else:
-        files["Metadata/project_settings.config"] = json.dumps({"filament_colour": COLORS, "filament_type": TYPES}, indent=4)
+        files["Metadata/project_settings.config"] = json.dumps({"filament_colour": colors, "filament_type": TYPES}, indent=4)
     files["[Content_Types].xml"] = (
         '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
         ' <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'

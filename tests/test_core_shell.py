@@ -73,3 +73,15 @@ def test_core_with_primer(painted_cube):
     assert _vol(by[4]) == pytest.approx(16.4**3, rel=0.02)  # core: 20 - 2 * (1.0 + 0.8)
     assert _vol(by[3]) == pytest.approx(18.0**3 - 16.4**3, rel=0.03)  # primer layer
     assert sum(_vol(p) for p in parts) == pytest.approx(8000, rel=1e-3)
+
+
+def test_penguin_example_is_solid_and_painted():
+    from layerfun import penguin
+    from layerfun.depth import to_manifold
+
+    v, f = penguin.mesh(voxel=1.0)
+    m = to_manifold(v, f)
+    assert m.status().name == "NoError" and m.genus() == 0
+    assert abs(v[:, 2].min()) < 1e-9  # flat base on the bed
+    lab = penguin.paint(v[f].mean(1))
+    assert set(lab.tolist()) == {penguin.ORANGE, penguin.YELLOW, penguin.BLACK, penguin.WHITE}

@@ -143,7 +143,7 @@ def cmd_shell(args: argparse.Namespace) -> None:
 def cmd_testmodel(args: argparse.Namespace) -> None:
     from . import testmodel
 
-    print(testmodel.write(args.out, template=args.template, scale=args.scale))
+    print(testmodel.write(args.out or f"{'testshapes' if args.model == 'shapes' else args.model}.3mf", template=args.template, scale=args.scale, model=args.model))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -198,9 +198,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("-o", "--out", help="output 3MF (default: <file>-shell.3mf)")
     p.set_defaults(func=cmd_shell)
 
-    p = sub.add_parser("testmodel", help="write a small painted test plate (cube, pyramid, sphere)")
-    p.add_argument("-o", "--out", default="testshapes.3mf")
-    p.add_argument("--template", help="copy slicer settings from this Bambu 3MF (needs the same 6 filament slots)")
+    p = sub.add_parser("testmodel", help="write a painted example: a test plate (cube, pyramid, sphere) or a penguin")
+    p.add_argument("--model", choices=["shapes", "penguin"], default="shapes")
+    p.add_argument("-o", "--out", help="output 3MF (default: testshapes.3mf / penguin.3mf)")
+    p.add_argument("--template", help="copy slicer settings from this Bambu 3MF (needs the same 5 filament slots)")
     p.add_argument("--scale", type=float, default=1.0)
     p.set_defaults(func=cmd_testmodel)
     args = ap.parse_args(argv)

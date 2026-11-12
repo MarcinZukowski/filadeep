@@ -758,8 +758,20 @@ $("save").onclick = () => {
 const tip = $("tip");
 let tipTimer = 0, tipFor = null, mouseX = 0;
 document.addEventListener("pointermove", (e) => (mouseX = e.clientX), { passive: true });
+/** "Default: …" for a tip on an option that is stored in the link (empty otherwise). */
+function defaultNote(el) {
+  if (!el.closest("#right .controls")) return "";
+  const c = el.querySelector("input, select");
+  if (!c) return "";
+  if (c.type === "checkbox") return `Default: ${c.defaultChecked ? "on" : "off"}.`;
+  if (c.type === "number") return `Default: ${c.defaultValue} mm.`;
+  if (c.type === "text") return `Default: ${c.defaultValue || "empty"}.`;
+  if (c.classList.contains("fil")) return c.id === "shellF" ? "Default: the last filament slot." : "Default: filament slot 1.";
+  return "";
+}
 function showTip(el) {
-  tip.textContent = el.dataset.tip;
+  const note = defaultNote(el);
+  tip.textContent = el.dataset.tip + (note ? `\n${note}` : "");
   tip.hidden = false;
   const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
   const view = el.hasAttribute("data-tip-view");

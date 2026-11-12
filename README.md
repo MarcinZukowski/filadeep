@@ -13,6 +13,7 @@ uv run layerfun core  model.3mf --filament 3 --primer 4     #    ...with a prime
 uv run layerfun shell model.3mf --filament 5 --thickness 1  # #3 wrap in another filament (e.g. PVB / translucent PLA)
 
 uv run layerfun testmodel -o models/testshapes.3mf --template models/template-h2c.3mf
+uv run layerfun testmodel --model penguin -o models/penguin.3mf --template models/template-h2c.3mf   # organic example
 ```
 
 Each command writes `<file>-<command>.3mf` (or `-o`). Filament slots must already exist
