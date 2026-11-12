@@ -125,7 +125,7 @@ const CASES = { 1: [[[0, 1], [0, 2], [0, 3]]], 3: [[[0, 3], [1, 3], [2, 3]]], 2:
  * block's grid points. Vertices are keyed by global grid edge, so blocks stitch
  * exactly and the result is watertight.
  */
-export function isosurface(evalBlock, lo, voxel, shape, blocks, block, onProgress = null) {
+export function isosurface(evalBlock, lo, voxel, shape, blocks, block, onProgress = null, xRange = null) {
   const [SX, SY, SZ] = shape;
   const vkey = new Map();
   const vpos = new Grow(Float64Array, 1 << 20);
@@ -152,6 +152,7 @@ export function isosurface(evalBlock, lo, voxel, shape, blocks, block, onProgres
           let v = g[k];
           const gx = i0[0] + ix, gy = i0[1] + iy, gz = i0[2] + iz;
           if (gx === 0 || gy === 0 || gz === 0 || gx === SX - 1 || gy === SY - 1 || gz === SZ - 1) v = -voxel;
+          if (xRange && (gx < xRange[0] || gx > xRange[1])) v = -voxel; // outside this chunk
           if (Math.abs(v) < eps) v = v < 0 ? -eps : eps;
           g[k] = v;
           if (v > 0) pos = true; else neg = true;
@@ -219,6 +220,60 @@ export function isosurface(evalBlock, lo, voxel, shape, blocks, block, onProgres
   return { vertices: vpos.get(), faces: tri.get() };
 }
 
+/**
+ * Isosurface -> simplified Manifold, built in chunks so WASM memory stays
+ * bounded (a raw marching-tets mesh costs ~350 bytes/triangle in manifold, and
+ * big models produce 5-10M triangles; browsers cap WASM memory at 4 GB).
+ *
+ * Blocks are grouped into slabs along x. Each slab's field is forced to
+ * "outside" beyond its grid range [x0, x1], which closes it with a cap just
+ * past its boundary. In the overlap layer each slab's region is contained in
+ * its neighbour's (forced values are <= the true ones, and the interpolation is
+ * linear), so the union of the slabs is exactly the unchunked isosurface; only
+ * the per-slab simplification differs (within its tolerance).
+ */
+export function isoManifold(wasm, evalBlock, lo, voxel, shape, blocks, block, tol, onProgress = null, maxBlocks = 300) {
+  const byX = new Map();
+  for (const b of blocks) (byX.get(b[0]) ?? byX.set(b[0], []).get(b[0])).push(b);
+  const xs = [...byX.keys()].sort((a, b) => a - b);
+  const groups = [];
+  let cur = [], n = 0;
+  for (const x of xs) {
+    cur.push(x);
+    n += byX.get(x).length;
+    if (n >= maxBlocks) {
+      groups.push(cur);
+      cur = [];
+      n = 0;
+    }
+  }
+  if (cur.length) groups.push(cur);
+  const parts = [];
+  let rawTris = 0;
+  for (const [gi, g] of groups.entries()) {
+    const first = gi === 0, last = gi === groups.length - 1;
+    const xa = g[0], xb = g[g.length - 1];
+    const range = groups.length === 1 ? null : [first ? -Infinity : xa * block, last ? Infinity : (xb + 1) * block];
+    // Neighbouring block columns hold the cap cubes.
+    const bl = blocks.filter((b) => b[0] >= xa - (first ? 0 : 1) && b[0] <= xb + (last ? 0 : 1));
+    const step = (f) => onProgress?.((gi + f) / groups.length);
+    const iso = isosurface(evalBlock, lo, voxel, shape, bl, block, (f) => step(0.6 * f), range);
+    if (!iso) continue;
+    rawTris += iso.faces.length / 3;
+    step(0.6);
+    const raw = toManifold(wasm, iso.vertices, iso.faces);
+    step(0.8);
+    parts.push(raw.simplify(tol));
+    raw.delete();
+  }
+  onProgress?.(1);
+  if (!parts.length) return null;
+  if (parts.length === 1) return { manifold: parts[0], rawTris, chunks: 1 };
+  const manifold = wasm.Manifold.union(parts);
+  for (const p of parts) p.delete();
+  return { manifold, rawTris, chunks: groups.length };
+}
+
 // ------------------------------------------------------------------- driver
 
 /**
@@ -257,7 +312,7 @@ export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
 
   const makeShell = (k, d, restOff = 0, sp = new Span()) => {
     const f = order[k];
-    const [spMask, spIso, spBuild, spSimp, spBool] = sp.split([5, 45, 25, 20, 5]);
+    const [spMask, spIso, spBool] = sp.split([5, 90, 5]);
     const what = `filament ${f}${restOff ? " (primer)" : ""}`;
     spMask.at(0, `${what}: narrow band`);
     const earlier = new Set(order.slice(0, k)), later = new Set(order.slice(k + 1));
@@ -315,48 +370,47 @@ export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
         }
       }
     };
-    const iso = isosurface(evalBlock, lo, voxel, shape, blocks, block, (x) => spIso.at(x, `${what}: depth field`));
-    if (!iso) return null;
-    log(`filament ${f}: isosurface ${iso.faces.length / 3} tris`);
-    spBuild.at(0, `${what}: building mesh (${(iso.faces.length / 3e6).toFixed(1)}M triangles)`);
-    let shell = toManifold(wasm, iso.vertices, iso.faces);
-    const n0 = shell.numTri();
-    log(`filament ${f}: manifold built`);
-    spSimp.at(0, `${what}: simplifying`);
-    shell = shell.simplify(simplify * voxel);
+    const res = isoManifold(wasm, evalBlock, lo, voxel, shape, blocks, block, simplify * voxel, (x) => spIso.at(x, `${what}: depth field + mesh`));
+    if (!res) return null;
+    const shell = res.manifold, n0 = res.rawTris;
     spBool.at(0, `${what}: booleans`);
-    log(`filament ${f}: shell ${n0} -> ${shell.numTri()} tris`);
+    log(`filament ${f}: shell ${n0} -> ${shell.numTri()} tris (${res.chunks} chunk${res.chunks > 1 ? "s" : ""})`);
     return shell;
   };
 
   // Booleans only ever cut with raw shells (see depth.py).
+  // Every manifold made here lives in WASM memory until .delete(): track them.
+  const owned = [body];
+  const own = (m) => (owned.push(m), m);
   const plugs = new Map();
   const shells = [];
   for (let k = 0; k < order.length; k++) {
     const f = order[k];
     const shell = makeShell(k, depths.get(f), 0, shellSpans[k]);
     if (!shell) continue;
-    let plug = body.intersect(shell);
-    if (shells.length) plug = plug.subtract(Manifold.union(shells));
+    own(shell);
+    let plug = own(body.intersect(shell));
+    if (shells.length) plug = own(plug.subtract(own(Manifold.union(shells))));
     shells.push(shell);
     log(`filament ${f}: plug ${plug.numTri()} tris, volume ${plug.volume().toFixed(0)} mm³`);
     plugs.set(f, plug);
   }
-  const colors = shells.length ? Manifold.union(shells) : null;
+  const colors = shells.length ? own(Manifold.union(shells)) : null;
   let inner = colors;
   if (primer && shells.length) {
     const [pf, pt] = primer;
-    const ext = order.map((f, k) => makeShell(k, depths.get(f) + pt, -overlap * voxel, shellSpans[order.length + k])).filter(Boolean);
-    inner = Manifold.union([...ext, colors]);
-    const layer = body.intersect(inner).subtract(colors);
+    const ext = order.map((f, k) => makeShell(k, depths.get(f) + pt, -overlap * voxel, shellSpans[order.length + k])).filter(Boolean).map(own);
+    inner = own(Manifold.union([...ext, colors]));
+    const layer = own(own(body.intersect(inner)).subtract(colors));
     log(`primer (filament ${pf}, ${pt.toFixed(2)} mm): ${layer.numTri()} tris, volume ${layer.volume().toFixed(0)} mm³`);
-    plugs.set(pf, plugs.has(pf) ? plugs.get(pf).add(layer) : layer);
+    plugs.set(pf, plugs.has(pf) ? own(plugs.get(pf).add(layer)) : layer);
   }
   spCore.at(0, "core");
-  const core = inner ? body.subtract(inner) : body;
+  const core = inner ? own(body.subtract(inner)) : body;
   log(`core: ${core.numTri()} tris, volume ${core.volume().toFixed(0)} mm³`);
   const res = { core: core.isEmpty() ? null : fromManifold(core), plugs: new Map() };
   for (const [f, m] of plugs) if (!m.isEmpty()) res.plugs.set(f, fromManifold(m));
+  for (const m of new Set(owned)) m.delete();
   span.at(1, "part done");
   return res;
 }

@@ -2,6 +2,9 @@
 // options <-> URL hash, processing in a Web Worker.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { load, applyTransform, matmul, partExtruder, filamentColor } from "./src/threemf.js";
 import { tessellate } from "./src/paint.js";
 
@@ -26,6 +29,14 @@ class View {
     this.scene.add(this.sun, this.sun.target);
     this.content = new THREE.Group();
     this.scene.add(this.content);
+    // Outline of the cut pieces at the layer height (see updateOutline).
+    // Fat lines (plain WebGL lines are always 1 px).
+    this.outline = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ vertexColors: true, linewidth: 2.5, worldUnits: false }));
+    this.outline.renderOrder = 5e5; // after the caps, before translucent parts
+    this.outline.frustumCulled = false;
+    this.scene.add(this.outline);
+    this.outlineKey = "";
+    this.version = 0;
     this.grid = new THREE.GridHelper(256, 32, 0x3a404a, 0x2a2e35);
     this.grid.rotation.x = Math.PI / 2;
     this.scene.add(this.grid);
@@ -37,6 +48,47 @@ class View {
     for (const c of this.content.children) c.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
     this.content.clear();
     for (const o of objs) this.content.add(o);
+    this.version++;
+  }
+  /** Line segments where the cut plane crosses each part's triangles. */
+  updateOutline(on) {
+    const key = on ? `${clip.constant}|${this.version}` : "off";
+    if (key === this.outlineKey) return;
+    this.outlineKey = key;
+    const pos = [], col = [];
+    if (on) {
+      const z = clip.constant, zl = z - 5e-4; // just above the cap, below the clip
+      for (const group of this.content.children) {
+        if (!group.visible) continue;
+        const g = group.children[0].geometry;
+        const p = g.attributes.position.array, idx = g.index?.array;
+        const n = idx ? idx.length / 3 : p.length / 9;
+        const { r, g: gg, b } = outlineColor;
+        for (let t = 0; t < n; t++) {
+          const a = 3 * (idx ? idx[3 * t] : 3 * t), bb = 3 * (idx ? idx[3 * t + 1] : 3 * t + 1), c = 3 * (idx ? idx[3 * t + 2] : 3 * t + 2);
+          const za = p[a + 2], zb = p[bb + 2], zc = p[c + 2];
+          if ((za > z && zb > z && zc > z) || (za <= z && zb <= z && zc <= z)) continue;
+          // Two crossing edges -> one segment.
+          let k = 0;
+          for (const [u, w] of [[a, bb], [bb, c], [c, a]]) {
+            const zu = p[u + 2], zw = p[w + 2];
+            if ((zu > z) === (zw > z)) continue;
+            const f = (z - zu) / (zw - zu);
+            pos.push(p[u] + (p[w] - p[u]) * f, p[u + 1] + (p[w + 1] - p[u + 1]) * f, zl);
+            col.push(r, gg, b);
+            if (++k === 2) break;
+          }
+          if (k === 1) pos.length -= 3, col.length -= 3;
+        }
+      }
+    }
+    this.outline.geometry.dispose();
+    const geo = new LineSegmentsGeometry();
+    if (pos.length) {
+      geo.setPositions(pos);
+      geo.setColors(col);
+    }
+    this.outline.geometry = geo;
   }
   render() {
     const { clientWidth: w, clientHeight: h } = this.canvas;
@@ -48,8 +100,22 @@ class View {
     this.sun.position.copy(camera.position).add(new THREE.Vector3(0, 0, camera.position.distanceTo(target) * 0.5));
     this.sun.target.position.copy(target);
     const on = $("sliceOn").checked;
+    const hl = $("hl").value;
     this.renderer.clippingPlanes = on ? [clip] : [];
-    const c = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
+    this.updateOutline(on && hl !== "off");
+    this.outline.material.resolution.set(w, h);
+    this.outline.visible = on && hl !== "off";
+    // "dim": darken the model's surfaces so the cut layer stands out.
+    const dim = on && hl === "dim" ? 0.35 : 1;
+    for (const group of this.content.children) {
+      const m = group.children[0].material;
+      if (m.userData.dim !== dim) {
+        m.userData.base ??= m.color.clone();
+        m.color.copy(m.userData.base).multiplyScalar(dim);
+        m.userData.dim = dim;
+      }
+    }
+    const c = sliceBox.getCenter(new THREE.Vector3()), size = sliceBox.getSize(new THREE.Vector3());
     this.content.traverse((o) => {
       if (!o.userData.sliceOnly) return;
       o.visible = on;
@@ -60,6 +126,35 @@ class View {
     });
     this.renderer.render(this.scene, camera);
   }
+}
+
+// Cut-outline color: from a few vivid colors, the one perceptually furthest
+// (CIELAB distance) from every filament color in the model.
+const OUTLINE_PALETTE = ["#ff00ff", "#00ffff", "#9b30ff", "#ffe600", "#ff7a00", "#ffffff"];
+let outlineColor = new THREE.Color("#ff00ff");
+
+function lab(hex) {
+  const c = parseColor(hex).color; // linear sRGB
+  const x = (0.4124 * c.r + 0.3576 * c.g + 0.1805 * c.b) / 0.9505;
+  const y = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  const z = (0.0193 * c.r + 0.1192 * c.g + 0.9505 * c.b) / 1.089;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+function pickOutlineColor(hexes) {
+  const used = [...new Set(hexes)].map(lab);
+  let best = OUTLINE_PALETTE[0], bestD = -1;
+  for (const cand of OUTLINE_PALETTE) {
+    const L = lab(cand);
+    const d = Math.min(...used.map((u) => Math.hypot(L[0] - u[0], L[1] - u[1], L[2] - u[2])), 1e9);
+    if (d > bestD) (bestD = d), (best = cand);
+  }
+  outlineColor = new THREE.Color(best);
+  for (const v of Object.values(views)) v.outlineKey = ""; // recolor
+  $("hl").dataset.color = best;
+  renderAll();
+  return best;
 }
 
 const views = { src: new View($("cvSrc")), out: new View($("cvOut")) };
@@ -143,12 +238,23 @@ document.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => frame
 
 // ------------------------------------------------------------------ slicing
 
+let sliceBox = new THREE.Box3(); // source and output together
+
+/** Extend the slider's range (e.g. a shell makes the output taller), keeping the cut where it is. */
+function setSliceRange(box) {
+  const z = clip.constant;
+  const had = !sliceBox.isEmpty() && $("sliceOn").checked;
+  sliceBox = box.clone();
+  if (had) $("slice").value = String(Math.min(100, Math.max(0, ((z - box.min.z) / (box.max.z - box.min.z)) * 100)));
+  updateSlice();
+}
+
 function updateSlice() {
-  const z0 = bounds.min.z, z1 = bounds.max.z;
+  const z0 = sliceBox.min.z, z1 = sliceBox.max.z;
   const t = +$("slice").value / 100;
   const z = z0 + (z1 - z0) * t;
   clip.constant = z;
-  $("sliceZ").textContent = bounds.isEmpty() ? "–" : `z ${z.toFixed(2)} mm`;
+  $("sliceZ").textContent = sliceBox.isEmpty() ? "–" : `z ${z.toFixed(2)} mm`;
   renderAll();
 }
 $("slice").oninput = () => {
@@ -156,19 +262,80 @@ $("slice").oninput = () => {
   updateSlice();
 };
 $("sliceOn").onchange = updateSlice;
+$("hl").onchange = () => {
+  $("sliceOn").checked = true;
+  updateSlice();
+};
 
 // ------------------------------------------------------------------ source
 
 let source = null; // { proj, bytes, name, url }
+let srcAreas = new Map(); // filament -> surface area (mm²)
+
+// Rough cost model (seconds on an Apple M4 Max, GB peak), fitted to measured
+// JS runs at voxel 0.25: black kitsune depth 41 s / 2.9 GB, light kitsune +
+// shell 53 s / 3.1 GB, test plate with core+primer+shell 20 s, kitsune.3mf
+// (2.4M triangles) 73 s / 5.3 GB. Area terms scale with (0.25 / voxel)².
+// Areas in cm².
+let srcTris = 0;
+function estimate() {
+  const el = $("estimate");
+  if (!srcAreas.size) return (el.textContent = "");
+  const o = readOpts();
+  const v = o.voxel > 0 ? o.voxel : 0.25;
+  const cm2 = new Map([...srcAreas].map(([f, a]) => [f, a / 100]));
+  const total = [...cm2.values()].reduce((a, b) => a + b, 0);
+  // Colors that get their own volumes: everything but the core filament
+  // (without a core option, the largest area is usually the parts' default).
+  const coreF = o.core ? o.core.filament : [...cm2].sort((a, b) => b[1] - a[1])[0][0];
+  const colored = [...cm2].filter(([f]) => f !== coreF).reduce((a, [, x]) => a + x, 0);
+  const mtris = srcTris / 1e6;
+  const cost = (r) => {
+    let t = 4 + 14 * mtris + 0.012 * total * r + 0.09 * colored * r;
+    if (o.core?.primer) t += 0.1 * colored * r;
+    if (o.shell) t += 0.1 * total * r;
+    const gb = 1.0 + 1.3 * mtris + 0.0035 * total * r + (o.shell ? 0.8 : 0);
+    return { t, gb };
+  };
+  const { t, gb } = cost((0.25 / v) ** 2);
+  const fmt = (s) => (s >= 90 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`);
+  // Heavy: over ~2 min, or near the browser's 4 GB WebAssembly limit.
+  const ok = (c) => c.t <= 120 && c.gb <= 3.5;
+  const heavy = !ok({ t, gb });
+  let text = `est. ~${fmt(t)} · ~${gb.toFixed(1)} GB`;
+  if (heavy) {
+    // Smallest voxel up to 0.5 mm (coarser loses the thin dark colors) that fixes it.
+    let sv = null;
+    for (let x = Math.ceil(v * 20 + 1e-9) / 20; x <= 0.5 + 1e-9; x += 0.05) if (ok(cost((0.25 / x) ** 2))) { sv = x; break; }
+    if (sv) text += ` — heavy: voxel ${sv.toFixed(2)} would be ~${fmt(cost((0.25 / sv) ** 2).t)}, ~${cost((0.25 / sv) ** 2).gb.toFixed(1)} GB`;
+    else if (mtris > 1) text += ` — heavy: the mesh is large (${mtris.toFixed(1)}M triangles); simplify it first`;
+    else text += " — heavy: try a larger voxel";
+  }
+  el.textContent = text;
+  el.classList.toggle("warn", heavy);
+}
 
 function legend(el, entries, onToggle) {
   el.innerHTML = "";
-  for (const { key, hex, label } of entries) {
+  for (const { key, hex, label, tip } of entries) {
     const l = document.createElement("label");
+    if (tip) l.dataset.tip = tip;
     l.innerHTML = `${onToggle ? '<input type="checkbox" checked>' : ""}<span class="sw" style="background:${parseColor(hex).color.getStyle()};opacity:${Math.max(parseColor(hex).alpha, 0.35)}"></span>${label}`;
     if (onToggle) l.querySelector("input").onchange = (e) => onToggle(key, e.target.checked);
     el.appendChild(l);
   }
+}
+
+const dims = (b) => {
+  const s = b.getSize(new THREE.Vector3());
+  return `${s.x.toFixed(1)} × ${s.y.toFixed(1)} × ${s.z.toFixed(1)} mm`;
+};
+function sizes(objBoxes) {
+  const named = objBoxes.filter(([, b]) => !b.isEmpty());
+  if (named.length <= 4) return named.map(([n, b]) => `${n}: ${dims(b)}`).join("\n");
+  const all = new THREE.Box3();
+  for (const [, b] of named) all.union(b);
+  return `${named.length} objects, plate area used: ${dims(all)}`;
 }
 
 function showSource(proj) {
@@ -176,7 +343,10 @@ function showSource(proj) {
   const box = new THREE.Box3();
   const areas = new Map();
   let tris = 0, painted = 0;
-  for (const obj of proj.objects)
+  const objBoxes = [];
+  for (const obj of proj.objects) {
+    const ob = new THREE.Box3();
+    objBoxes.push([obj.name, ob]);
     for (const part of obj.parts) {
       if (part.subtype !== "normal_part") continue;
       const { tris: t, states } = tessellate(part.mesh.vertices, part.mesh.faces, part.mesh.paint);
@@ -201,8 +371,13 @@ function showSource(proj) {
       g.setAttribute("color", new THREE.BufferAttribute(col, 3));
       g.computeBoundingBox();
       box.union(g.boundingBox);
+      ob.union(g.boundingBox);
       meshes.push(partMesh(g, filamentColor(proj, pe), true));
     }
+  }
+  srcAreas = areas;
+  pickOutlineColor([...areas.keys()].map((f) => filamentColor(proj, f)));
+  srcTris = tris;
   views.src.setContent(meshes);
   views.out.setContent([]);
   bounds = box;
@@ -214,9 +389,12 @@ function showSource(proj) {
   const n = proj.filamentColors.length;
   $("srcInfo").textContent =
     `${proj.name}  ·  ${proj.objects.length} object(s), ${tris.toLocaleString()} triangles, ${painted.toLocaleString()} painted\n` +
-    `${proj.application || "unknown app"}  ·  ${n} filament slot(s)`;
+    `${proj.application || "unknown app"}  ·  ${n} filament slot(s)` +
+    "\n" + sizes(objBoxes) +
+    (tris > 1e6 ? `\n⚠ ${(tris / 1e6).toFixed(1)}M triangles: expect slower runs, more memory and a large output file. Simplifying the model first helps (e.g. in the slicer).` : "");
   legend($("srcLegend"), [...areas.keys()].sort((a, b) => a - b).map((f) => ({
     key: f, hex: filamentColor(proj, f), label: `${f} ${proj.filamentTypes[f - 1] || ""} · ${(areas.get(f) / 100).toFixed(1)} cm²`,
+    tip: `Filament slot ${f} (${proj.filamentTypes[f - 1] || "?"}, ${filamentColor(proj, f)}): ${(areas.get(f) / 100).toFixed(1)} cm² of the surface uses it, painted or as a part's default.`,
   })), null);
   // Filament pickers.
   for (const sel of document.querySelectorAll("select.fil")) {
@@ -226,7 +404,8 @@ function showSource(proj) {
   }
   if (!$("shellF").dataset.want && !$("shellF").dataset.touched) $("shellF").value = String(n);
   $("run").disabled = false;
-  updateSlice();
+  estimate();
+  setSliceRange(box);
   frameView("iso");
 }
 
@@ -322,6 +501,7 @@ function syncHash() {
 document.querySelectorAll(".controls input, .controls select").forEach((el) => el.addEventListener("change", () => {
   if (el.id === "shellF") el.dataset.touched = "1";
   if (el.id !== "srcFile" && el.id !== "srcUrl") syncHash();
+  estimate();
 }));
 
 $("copyLink").onclick = async () => {
@@ -335,6 +515,7 @@ $("copyLink").onclick = async () => {
 // ------------------------------------------------------------------ run
 
 let worker = null, result = null;
+let stopJob = null; // cleanup for the running job (timer, worker, buttons)
 
 function showOutput(parts, proj) {
   const byF = new Map();
@@ -347,11 +528,20 @@ function showOutput(parts, proj) {
     (byF.get(p.extruder) ?? byF.set(p.extruder, []).get(p.extruder)).push({ mesh: m, part: p });
   }
   views.out.setContent([...byF.values()].flat().map((x) => x.mesh));
+  const box = bounds.clone();
+  for (const group of views.out.content.children) {
+    const g = group.children[0].geometry; // the lit mesh; stencil and cap meshes share it
+    g.computeBoundingBox();
+    box.union(g.boundingBox);
+  }
+  setSliceRange(box);
+  pickOutlineColor([...new Set([...srcAreas.keys(), ...byF.keys()])].map((f) => filamentColor(proj, f)));
   legend($("outLegend"), [...byF.keys()].sort((a, b) => a - b).map((f) => {
     const names = [...new Set(byF.get(f).map((x) => x.part.name.replace(/^.*? (core|primer|shell|color \d+)$/, "$1")))].join(", ");
-    return { key: f, hex: filamentColor(proj, f), label: `${f} · ${names}` };
+    return { key: f, hex: filamentColor(proj, f), label: `${f} · ${names}`, tip: `Filament ${f}: ${names}. Untick to hide these parts in the output view.` };
   }), (f, on) => {
     for (const m of views.out.content.children) if (m.userData.extruder === f) m.visible = on;
+    views.out.version++;
     renderAll();
   });
   renderAll();
@@ -359,7 +549,7 @@ function showOutput(parts, proj) {
 
 function runJob() {
   if (!source) return;
-  worker?.terminate();
+  stopJob?.();
   syncHash();
   $("log").textContent = "";
   $("run").disabled = true;
@@ -376,18 +566,22 @@ function runJob() {
     $("progress").querySelector(".fill").style.width = `${(frac * 100).toFixed(1)}%`;
     $("progress").querySelector(".ptext").textContent = `${Math.floor(frac * 100)}% · ${label} · ${fmt(el)}${eta}`;
   };
-  $("progress").hidden = false;
+  $("progress").classList.add("running");
   paint();
   const tick = setInterval(paint, 500);
+  const me = new Worker("worker.js", { type: "module" });
   const done = () => {
     clearInterval(tick);
-    $("progress").hidden = true;
+    me.terminate();
+    if (worker !== me) return; // a newer job owns the UI
+    worker = null;
+    stopJob = null;
+    $("progress").classList.remove("running");
     $("run").disabled = false;
     $("cancel").hidden = true;
-    worker.terminate();
-    worker = null;
   };
-  worker = new Worker("worker.js", { type: "module" });
+  stopJob = done;
+  worker = me;
   worker.onmessage = ({ data }) => {
     if (data.type === "progress") {
       frac = Math.max(frac, data.f);
@@ -400,13 +594,15 @@ function runJob() {
       done();
       result = { bytes: data.bytes, name: source.name.replace(/\.3mf$/i, "") + "-layerfun.3mf" };
       $("save").disabled = false;
-      $("status").textContent = `done in ${data.seconds.toFixed(1)} s · ${(data.bytes.length / 1e6).toFixed(1)} MB`;
       showOutput(data.parts, source.proj);
+      const outBox = new THREE.Box3();
+      for (const group of views.out.content.children) outBox.union(group.children[0].geometry.boundingBox);
+      $("status").textContent = `done in ${data.seconds.toFixed(1)} s · ${(data.bytes.length / 1e6).toFixed(1)} MB · output ${dims(outBox)}`;
     } else if (data.type === "error") {
       done();
       $("status").textContent = "failed (see log)";
       $("log").textContent += data.text + "\n";
-      $("logBox").open = true;
+      showLog(true);
     }
   };
   worker.onerror = (e) => {
@@ -417,12 +613,20 @@ function runJob() {
 }
 
 $("run").onclick = runJob;
+function showLog(on = $("logPanel").hidden) {
+  $("logPanel").hidden = !on;
+  $("logBtn").classList.toggle("active", on);
+  if (on) $("log").scrollTop = 1e9;
+}
+$("logBtn").onclick = () => showLog();
+$("closeLog").onclick = () => showLog(false);
+$("copyLog").onclick = async () => {
+  await navigator.clipboard.writeText($("log").textContent);
+  $("copyLog").textContent = "Copied";
+  setTimeout(() => ($("copyLog").textContent = "Copy"), 1200);
+};
 $("cancel").onclick = () => {
-  worker?.terminate();
-  $("progress").hidden = true;
-  worker = null;
-  $("run").disabled = false;
-  $("cancel").hidden = true;
+  stopJob?.();
   $("status").textContent = "cancelled";
 };
 $("save").onclick = () => {
@@ -433,6 +637,49 @@ $("save").onclick = () => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 };
+
+// ------------------------------------------------------------------ tooltips
+// Elements carry their help text in data-tip; one floating box shows it after
+// a short hover (or on keyboard focus). The 3D views only show their tip while
+// the pointer rests, not while dragging.
+
+const tip = $("tip");
+let tipTimer = 0, tipFor = null, mouseX = 0;
+document.addEventListener("pointermove", (e) => (mouseX = e.clientX), { passive: true });
+function showTip(el) {
+  tip.textContent = el.dataset.tip;
+  tip.hidden = false;
+  const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+  const view = el.hasAttribute("data-tip-view");
+  // Narrow elements: centred under them. Wide ones (headings, views): near the pointer.
+  const wide = view || r.width > 360;
+  let x = wide && mouseX ? mouseX - 20 : r.left + r.width / 2 - t.width / 2;
+  let y = view ? r.top + 32 : r.bottom + 6;
+  if (y + t.height > innerHeight - 4) y = r.top - t.height - 6;
+  x = Math.max(4, Math.min(x, innerWidth - t.width - 4));
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+}
+function hideTip() {
+  clearTimeout(tipTimer);
+  tip.hidden = true;
+  tipFor = null;
+}
+document.addEventListener("pointerover", (e) => {
+  const el = e.target.closest("[data-tip]");
+  if (el === tipFor) return;
+  hideTip();
+  if (!el || e.buttons) return;
+  tipFor = el;
+  tipTimer = setTimeout(() => showTip(el), el.hasAttribute("data-tip-view") ? 1200 : 450);
+});
+document.addEventListener("pointerdown", hideTip);
+document.addEventListener("wheel", hideTip, { passive: true });
+document.addEventListener("focusin", (e) => {
+  const el = e.target.closest("[data-tip]");
+  if (el && !el.hasAttribute("data-tip-view")) showTip(el);
+});
+document.addEventListener("focusout", hideTip);
 
 // ------------------------------------------------------------------ start
 

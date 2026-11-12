@@ -18,10 +18,11 @@ main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-row
 .controls { padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); max-height: 46vh; overflow: auto; min-width: 0; }
 .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
 .row input[type=url] { flex: 1; min-width: 200px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
-fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 legend { color: var(--muted); padding: 0 4px; }
-fieldset label { display: flex; align-items: center; gap: 6px; }
+fieldset label { display: flex; align-items: center; gap: 6px; min-width: 0; }
+fieldset select, fieldset input[type=text] { min-width: 0; flex: 1 1 auto; max-width: 100%; text-overflow: ellipsis; }
 input, select, button { font: inherit; color: var(--text); background: #262a31; border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; }
 input[type=number] { width: 64px; }
 input[type=checkbox] { accent-color: var(--accent); }
@@ -37,11 +38,26 @@ label.file input { display: none; }
 .view { position: relative; min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
 .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .tag { position: absolute; left: 10px; top: 8px; color: var(--muted); pointer-events: none; }
-pre#log { max-height: 160px; overflow: auto; font-size: 11px; margin: 4px 0 0; color: var(--muted); }
+.row .right { margin-left: auto; }
+.logpanel { position: absolute; top: 8px; right: 8px; width: min(620px, calc(100% - 16px)); max-height: 60%; display: flex; flex-direction: column;
+  background: #0d0f12ee; border: 1px solid #3a404a; border-radius: 8px; box-shadow: 0 6px 20px #0009; z-index: 2; }
+.logpanel[hidden] { display: none; }
+.loghead { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.loghead button { padding: 1px 8px; font-size: 12px; }
+pre#log { overflow: auto; font-size: 11px; line-height: 1.4; max-height: calc(10 * 1.4em + 12px); margin: 0; padding: 6px 10px; color: #c6ccd4; white-space: pre; }
 .mono { font-family: ui-monospace, monospace; min-width: 70px; }
 #slice { flex: 0 1 420px; }
 .drop main { outline: 2px dashed var(--accent); outline-offset: -6px; }
 @media (max-width: 800px) { main { grid-template-columns: 1fr; grid-template-rows: auto 40vh auto 40vh; grid-auto-flow: row; } }
-.progress { position: relative; height: 20px; border: 1px solid var(--line); border-radius: 5px; background: #262a31; overflow: hidden; margin: 4px 0 6px; }
+.progress { position: relative; height: 20px; border: 1px solid transparent; border-radius: 5px; overflow: hidden; margin: 4px 0 6px; }
+.progress.running { border-color: var(--line); background: #262a31; }
+.progress:not(.running) .fill, .progress:not(.running) .ptext, .progress.running .status { display: none; }
+.progress .status { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 2px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .progress .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #2f5fc4, var(--accent)); transition: width .15s linear; }
 .progress .ptext { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-shadow: 0 1px 2px #000a; }
+#tip { position: fixed; z-index: 10; max-width: 320px; padding: 6px 9px; border-radius: 6px; background: #0d0f12; border: 1px solid #3a404a;
+  color: var(--text); font-size: 12px; line-height: 1.45; white-space: pre-line; pointer-events: none; box-shadow: 0 4px 14px #0008; }
+.estimate { font-size: 11px; color: var(--muted); }
+.estimate.warn { color: #e8b44c; }
+#outLegend { min-height: 26px; } /* reserved: chips appear after a run without moving the views */
+button.active { border-color: var(--accent); color: #fff; }

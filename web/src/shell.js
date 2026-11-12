@@ -3,15 +3,17 @@
 // (booleans only involve the band surface, which never coincides with the body).
 
 import { KDTree } from "./kdtree.js";
-import { fromManifold, isosurface, log, sampleSurface, toManifold } from "./depth.js";
+import { fromManifold, isoManifold, log, sampleSurface, toManifold } from "./depth.js";
 import { Span } from "./progress.js";
 
 /** bodies: [{vertices, faces}] in world mm (parts of one object). Returns {vertices, faces} or null. */
 export function buildShell(wasm, bodies, thickness, { voxel = 0.25, block = 24, simplify = 0.3, trimBottom = true, span = new Span() } = {}) {
   const { Manifold } = wasm;
-  const [spPrep, spIso, spBuild, spBool] = span.split([15, 45, 30, 10]);
+  const [spPrep, spIso, spBool] = span.split([15, 75, 10]);
   spPrep.at(0, "shell: sampling the surface");
-  const body = Manifold.union(bodies.map((b) => toManifold(wasm, b.vertices, b.faces)));
+  const pieces = bodies.map((b) => toManifold(wasm, b.vertices, b.faces));
+  const body = Manifold.union(pieces);
+  for (const m of pieces) m.delete();
   const { vertices: v, faces: f } = fromManifold(body);
   log(`shell body: ${body.numTri()} tris, volume ${body.volume().toFixed(0)} mm³`);
   const tris = new Float64Array(f.length * 3);
@@ -62,17 +64,22 @@ export function buildShell(wasm, bodies, thickness, { voxel = 0.25, block = 24, 
       }
     }
   };
-  const iso = isosurface(evalBlock, lo, voxel, shape, blocks, block, (x) => spIso.at(x, "shell: distance field"));
-  spBuild.at(0, "shell: building mesh");
-  if (!iso) return null;
-  let band = toManifold(wasm, iso.vertices, iso.faces);
-  const n0 = band.numTri();
-  band = band.simplify(simplify * voxel);
-  log(`band: ${n0} -> ${band.numTri()} tris`);
+  const res = isoManifold(wasm, evalBlock, lo, voxel, shape, blocks, block, simplify * voxel, (x) => spIso.at(x, "shell: distance field + mesh"));
+  if (!res) return null;
+  const band = res.manifold, n0 = res.rawTris;
+  log(`band: ${n0} -> ${band.numTri()} tris (${res.chunks} chunks)`);
   spBool.at(0, "shell: booleans");
-  let shell = band.add(body).subtract(body);
-  if (trimBottom) shell = shell.trimByPlane([0, 0, 1], loAll[2]); // keep the model's footprint
-  if (shell.isEmpty()) return null;
-  log(`shell: ${shell.numTri()} tris, volume ${shell.volume().toFixed(0)} mm³`);
-  return fromManifold(shell);
+  const outer = band.add(body);
+  let shell = outer.subtract(body);
+  if (trimBottom) {
+    const untrimmed = shell;
+    shell = untrimmed.trimByPlane([0, 0, 1], loAll[2]); // keep the model's footprint
+    untrimmed.delete();
+  }
+  for (const m of [band, outer, body]) m.delete();
+  const empty = shell.isEmpty();
+  if (!empty) log(`shell: ${shell.numTri()} tris, volume ${shell.volume().toFixed(0)} mm³`);
+  const out = empty ? null : fromManifold(shell);
+  shell.delete();
+  return out;
 }

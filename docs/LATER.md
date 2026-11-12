@@ -55,6 +55,10 @@ Remaining (black kitsune, ~20 s): black isosurface ~6 s, green ~3 s, manifold +
 simplify ~3 s, load ~2 s (paint tessellation), write ~3 s (zlib level 6; level 1
 would save ~1 s for +24% file size).
 Ideas left:
+- Narrow-band cell scan covers the whole bounding box (1 mm cells, one KD query
+  each, per color): ~1M cells for the kitsune, but ~15M for a 250 mm model
+  (~15 s per color, all empty space). Only scan cells near that color's samples
+  (dilate the sample cells by reach) — same result, cost follows the surface.
 - Grid-native distances (EDT per block) instead of KD queries on 0.1 mm samples.
 - Fewer surface samples (spacing 0.1 -> 0.15 mm), check accuracy impact.
 - Marching tets vectorized over a whole batch of blocks (now ~2000 small calls).
@@ -100,6 +104,13 @@ come from which input face, but restoring means re-cutting the original patches
 along the color walls (a boolean on the full mesh again); details to decide.
 Not useful for the current bottleneck (the isosurface size depends on the grid
 and painted area, not on the input triangle count).
+
+Measured (JS, kitsune.3mf): the same kitsune at 1.8M triangles vs 282k takes ~37 s
+vs ~26 s for the depth step (+40%: body/booleans 2x, more samples work), writes a
+60 MB 3MF, and peaks at 5.3 GB (JS side: tessellated paint arrays and the
+string-keyed vertex dedupe in sampleSurface; worth replacing with typed arrays).
+A paint-aware simplifier (half-edge collapse inside same-paint regions, paint
+boundaries fixed) would help such inputs; the web UI warns above 1M triangles.
 
 ## Test plate
 `layerfun testmodel -o models/testshapes.3mf --template models/template-h2c.3mf`
