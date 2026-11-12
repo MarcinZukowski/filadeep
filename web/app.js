@@ -610,38 +610,75 @@ document.addEventListener("drop", async (e) => {
 
 // ------------------------------------------------------------------ options <-> URL
 
+// Output mode: "layers" (depth / core / shell) or "inlays"; the tabs next to OUTPUT.
+let mode = "layers";
+function setMode(m) {
+  mode = m === "inlays" ? "inlays" : "layers";
+  $("right").querySelector(".controls").dataset.mode = mode;
+  for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("active", b.dataset.mode === mode);
+}
+/** Filament slots typed into the inlays box; null = all painted filaments. */
+function inlayFilaments() {
+  const f = $("inlayF").value.split(",").map((s) => +s.trim()).filter((n) => Number.isInteger(n) && n > 0);
+  return f.length ? f : null;
+}
+
 function readOpts() {
   const num = (id) => +$(id).value;
   const opts = {
     dmin: num("dmin"), dmax: num("dmax"), voxel: num("voxel"),
     depths: Object.fromEntries($("depths").value.split(",").map((s) => s.trim()).filter(Boolean).map((kv) => kv.split("=").map(Number))),
-    object: $("obj").value.trim() || null, core: null, shell: null,
+    object: $("obj").value.trim() || null, core: null, shell: null, inlay: null,
   };
+  if (mode === "inlays") {
+    // Inlays replace the layer options (a core or shell would bring color changes back or cover the pieces).
+    opts.inlay = { filaments: inlayFilaments(), depth: num("idepth"), clearance: num("iclear"), leftover: $("ileft").value };
+    return opts;
+  }
   if ($("coreOn").checked)
     opts.core = { filament: num("coreF"), skin: num("skin"), primer: $("primerOn").checked ? { filament: num("primerF"), thickness: num("pt") } : null };
   if ($("shellOn").checked) opts.shell = { filament: num("shellF"), thickness: num("st"), keepBottom: $("kb").checked };
   return opts;
 }
 
-const FIELDS = { dmin: "dmin", dmax: "dmax", depths: "depths", voxel: "voxel", obj: "obj", skin: "skin", pt: "pt", st: "st" };
+const FIELDS = { dmin: "dmin", dmax: "dmax", depths: "depths", voxel: "voxel", obj: "obj", skin: "skin", pt: "pt", st: "st", idepth: "idepth", iclear: "iclear" };
 
 function toHash() {
   const p = new URLSearchParams();
   if (source?.url) p.set("src", source.url);
   for (const [k, id] of Object.entries(FIELDS)) if ($(id).value !== $(id).defaultValue) p.set(k, $(id).value);
-  if ($("coreOn").checked) p.set("core", $("coreF").value);
-  if ($("coreOn").checked && $("primerOn").checked) p.set("primer", $("primerF").value);
-  if ($("shellOn").checked) p.set("shell", $("shellF").value);
-  if ($("shellOn").checked && $("kb").checked) p.set("kb", "1");
+  if (mode === "inlays") {
+    p.set("inlay", inlayFilaments()?.join(",") ?? "all");
+    if ($("ileft").value !== "paint") p.set("ileft", $("ileft").value);
+  } else {
+    if ($("coreOn").checked) p.set("core", $("coreF").value);
+    if ($("coreOn").checked && $("primerOn").checked) p.set("primer", $("primerF").value);
+    if ($("shellOn").checked) p.set("shell", $("shellF").value);
+    if ($("shellOn").checked && $("kb").checked) p.set("kb", "1");
+  }
   // View: camera, cut heights in mm ("bottom,top", empty = no cut), highlight.
   if (camSaved) p.set("cam", camSaved);
   if (!sliceBox.isEmpty() && (cutTop() || cutBot())) p.set("cut", `${cutBot() ? zAt(cut.lo).toFixed(2) : ""},${cutTop() ? zAt(cut.hi).toFixed(2) : ""}`);
   if ($("hl").value !== "outline") p.set("hl", $("hl").value);
+  if ($("bg").value !== $("bg").defaultValue) p.set("bg", $("bg").value.slice(1));
   return p.toString().replace(/%2F/g, "/").replace(/%3A/g, ":").replace(/%2C/g, ",");
 }
 
+function setBackground() {
+  for (const v of Object.values(views)) v.renderer.setClearColor($("bg").value);
+  renderAll();
+}
+$("bg").oninput = setBackground;
+$("bg").onchange = () => syncHash();
+
+/** The link's parameters; when one is repeated, the last one wins (handy for appending overrides). */
+function hashParams() {
+  const last = new Map(new URLSearchParams(location.hash.slice(1)));
+  return new URLSearchParams([...last]);
+}
+
 function fromHash() {
-  const p = new URLSearchParams(location.hash.slice(1));
+  const p = hashParams();
   for (const [k, id] of Object.entries(FIELDS)) if (p.has(k)) $(id).value = p.get(k);
   const pick = (on, sel, key) => {
     $(on).checked = p.has(key);
@@ -650,6 +687,9 @@ function fromHash() {
   pick("coreOn", "coreF", "core");
   pick("primerOn", "primerF", "primer");
   pick("shellOn", "shellF", "shell");
+  setMode(p.has("inlay") ? "inlays" : "layers");
+  if (p.has("inlay")) $("inlayF").value = p.get("inlay") === "all" ? "" : p.get("inlay");
+  if (["paint", "body"].includes(p.get("ileft"))) $("ileft").value = p.get("ileft");
   $("kb").checked = p.get("kb") === "1";
   pendingCam = p.get("cam");
   if (p.has("cut")) {
@@ -657,12 +697,19 @@ function fromHash() {
     wantCut = [lo ?? null, hi ?? null];
   }
   if (["outline", "dim", "off"].includes(p.get("hl"))) $("hl").value = p.get("hl");
+  if (/^#?[0-9a-f]{6}$/i.test(p.get("bg") ?? "")) $("bg").value = "#" + p.get("bg").replace("#", "").toLowerCase();
+  setBackground();
   return p;
 }
 
 function syncHash() {
   history.replaceState(null, "", "#" + toHash());
 }
+for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => {
+  setMode(b.dataset.mode);
+  syncHash();
+  estimate();
+};
 document.querySelectorAll(".controls input, .controls select").forEach((el) => el.addEventListener("change", () => {
   if (el.id === "shellF") el.dataset.touched = "1";
   if (el.id !== "srcFile") syncHash();
@@ -702,7 +749,7 @@ function showOutput(parts, proj) {
   setSliceRange(box);
   pickOutlineColor([...new Set([...srcAreas.keys(), ...byF.keys()])].map((f) => filamentColor(proj, f)));
   legend($("outLegend"), [...byF.keys()].sort((a, b) => a - b).map((f) => {
-    const names = [...new Set(byF.get(f).map((x) => x.part.name.replace(/^.*? (core|primer|shell|color \d+)$/, "$1")))].join(", ");
+    const names = [...new Set(byF.get(f).map((x) => x.part.name.replace(/^.*? (core|primer|shell|color \d+|inlay)( [\d.]+)?$/, "$1")))].join(", ");
     return { key: f, hex: filamentColor(proj, f), label: `${f} · ${names}`, tip: `Filament ${f}: ${names}. Untick to hide these parts in the output view.` };
   }), (f, on) => {
     for (const m of views.out.content.children) if (m.userData.extruder === f) m.visible = on;
@@ -870,7 +917,7 @@ async function start() {
   renderAll();
 }
 window.addEventListener("hashchange", () => {
-  const src = new URLSearchParams(location.hash.slice(1)).get("src");
+  const src = hashParams().get("src");
   if (src && src !== source?.url) start();
 });
 start();

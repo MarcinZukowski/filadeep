@@ -3,6 +3,7 @@
 
 import { log, process as depthProcess, selectObjects } from "./depth.js";
 import { Span } from "./progress.js";
+import { arrange } from "./inlay.js";
 import { buildShell } from "./shell.js";
 import { applyTransform, invert, matmul, partExtruder } from "./threemf.js";
 import { replaceParts } from "./write3mf.js";
@@ -11,7 +12,8 @@ import { replaceParts } from "./write3mf.js";
  * opts: {
  *   depths: {filament: mm} overrides, dmin, dmax, voxel, object,
  *   core: {filament, skin, primer: {filament, thickness}} | null,
- *   shell: {filament, thickness, keepBottom} | null }
+ *   shell: {filament, thickness, keepBottom} | null,
+ *   inlay: {filaments: [n] | null (all painted), depth, clearance, leftover: "paint" | "body"} | null }  (ignored with a shell: it would cover them)
  * Returns { bytes (3MF), parts: [{name, extruder, vertices (world), faces}] }.
  */
 export function run(wasm, proj, opts = {}) {
@@ -21,7 +23,13 @@ export function run(wasm, proj, opts = {}) {
   const shellObjs = opts.shell ? selectObjects(proj, opts.object ?? null) : [];
   const [spDepth, spShell, spWrite] = new Span().split([80, shellObjs.length ? 40 : 0, 5]);
   const shellSpans = spShell.split(shellObjs.map(() => 1));
+  let inlay = opts.inlay ? { ...opts.inlay, filaments: opts.inlay.filaments?.length ? new Set(opts.inlay.filaments.map(Number)) : null } : null;
+  if (inlay && opts.shell) {
+    log("inlays skipped: a shell would cover them");
+    inlay = null;
+  }
   const repl = depthProcess(wasm, proj, {
+    inlay,
     span: spDepth,
     depthOverrides,
     voxel,
@@ -68,8 +76,29 @@ export function run(wasm, proj, opts = {}) {
       if (repl.has(`${obj.id}/${part.id}`) || part.subtype !== "normal_part") continue;
       parts.push({ name: part.name, extruder: partExtruder(obj, part), object: obj.name, vertices: applyTransform(part.mesh.vertices, matmul(part.transform, obj.transform)), faces: part.mesh.faces, untouched: true });
     }
+  // Inlay pieces: new objects lying flat on the plate, in front of their model.
+  const extra = [];
+  for (const { object: obj, pieces } of repl.inlays) {
+    let minx = Infinity, miny = Infinity, maxx = -Infinity;
+    for (const part of obj.parts) {
+      const v = applyTransform(part.mesh.vertices, matmul(part.transform, obj.transform));
+      for (let i = 0; i < v.length; i += 3) {
+        if (v[i] < minx) minx = v[i];
+        if (v[i] > maxx) maxx = v[i];
+        if (v[i + 1] < miny) miny = v[i + 1];
+      }
+    }
+    arrange(pieces, { minx, miny, maxx });
+    for (const p of pieces) {
+      const name = `${obj.name} ${p.name}`;
+      extra.push({ name, extruder: p.extruder, vertices: p.vertices, faces: p.faces, at: [p.at[0], p.at[1], 0], plateOf: obj.id });
+      const v = Float64Array.from(p.vertices);
+      for (let i = 0; i < v.length; i += 3) (v[i] += p.at[0]), (v[i + 1] += p.at[1]);
+      parts.push({ name, extruder: p.extruder, object: obj.name, vertices: v, faces: p.faces, inlay: true });
+    }
+  }
   spWrite.at(0, "writing 3MF");
-  const bytes = replaceParts(proj, repl);
+  const bytes = replaceParts(proj, repl, { extra });
   spWrite.at(1, "done");
   log(`3MF written: ${(bytes.length / 1e6).toFixed(1)} MB`);
   return { bytes, parts };

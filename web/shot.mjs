@@ -88,7 +88,8 @@ let failed = 0;
 for (let j = 0; j < jobs.length; j += 2) {
   const link = jobs[j], out = jobs[j + 1];
   const url = /^[a-z]+:\/\//i.test(link) ? link : opts.base + (link.startsWith("#") ? link : `#${link}`);
-  const wantRun = /[#&]run=1(&|$)/.test(url);
+  // As in the app: a repeated parameter takes its last value.
+  const wantRun = new Map(new URLSearchParams(url.split("#")[1] ?? "")).get("run") === "1";
   await send("Page.navigate", { url: "about:blank" }); // a changed hash alone would not reload the page
   await send("Page.navigate", { url });
   const t0 = Date.now();

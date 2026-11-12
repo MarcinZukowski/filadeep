@@ -37,27 +37,43 @@
   </section>
 
   <section class="panel" id="right">
-    <div class="controls">
-      <h2 data-tip="What FilaDeep will generate. Pick options, press RUN, then Save 3MF and open it in your slicer.">Output</h2>
+    <div class="controls" data-mode="layers">
+      <div class="head">
+        <h2 data-tip="What FilaDeep will generate. Pick options, press RUN, then Save 3MF and open it in your slicer.">Output</h2>
+        <div class="tabs" role="tablist">
+          <button data-mode="layers" class="active" data-tip="Color stays part of the print: painted areas become solid layers with a controlled depth, with an optional core, primer and shell. Needs multi-color printing.">Layers</button>
+          <button data-mode="inlays" data-tip="Painted areas become separate pieces that you print on their own and push (or glue) into matching pockets in the model. No color changes for those areas.">Inlays</button>
+        </div>
+      </div>
       <div class="grid">
-        <fieldset>
+        <fieldset class="m-layers">
           <legend data-tip="How deep each painted color goes into the model. Dark colors cover well, so they stay shallow (no bleeding through light colors next to them); light colors are translucent and need more thickness to hide what's behind them. In between, depth follows the color's brightness.">Color depth</legend>
           <label data-tip="Depth for the darkest colors (black). Other colors get a depth between this and the white value, by brightness.">black <input id="dmin" type="number" step="0.05" min="0.1" value="0.45"> mm</label>
           <label data-tip="Depth for the lightest colors (white).">white <input id="dmax" type="number" step="0.05" min="0.1" value="1.6"> mm</label>
           <label data-tip="Set the depth of specific filaments directly, as slot=mm pairs, e.g. 3=0.4,1=1.5. Wins over the black/white rule.">overrides <input id="depths" type="text" placeholder="3=0.4,1=1.5" size="10"></label>
         </fieldset>
-        <fieldset>
+        <fieldset class="m-layers">
           <legend data-tip="Fill the inside with a separate filament (e.g. strong or cheap PLA-CF) and keep the paint as a skin of fixed thickness around it."><label><input id="coreOn" type="checkbox"> Core (#1)</label></legend>
           <label data-tip="Filament slot for the inside. Where the paint already uses this filament, skin and core simply merge.">filament <select id="coreF" class="fil"></select></label>
           <label data-tip="Thickness of the colored skin over the core, the same for every color (per-filament overrides from Color depth still apply).">skin <input id="skin" type="number" step="0.1" min="0.2" value="1.2"> mm</label>
           <label data-tip="Add a layer between the colors and the core, e.g. white over a black core so light colors stay bright. Not placed where the core filament itself shows on the surface."><input id="primerOn" type="checkbox"> primer <select id="primerF" class="fil"></select></label>
           <label data-tip="Thickness of the primer layer.">primer <input id="pt" type="number" step="0.1" min="0.2" value="0.8"> mm</label>
         </fieldset>
-        <fieldset>
+        <fieldset class="m-layers">
           <legend data-tip="Wrap the whole model in a thin layer of another filament, e.g. clear PVB to smooth with alcohol. The paint is turned into solid parts first, because slicers ignore paint that is no longer on the outside."><label><input id="shellOn" type="checkbox"> Shell (#3)</label></legend>
           <label data-tip="Filament slot for the shell. Use a transparent or translucent one, or the colors won't be visible.">filament <select id="shellF" class="fil"></select></label>
           <label data-tip="Shell thickness. The model grows by this much on every side.">thickness <input id="st" type="number" step="0.1" min="0.2" value="1.0"> mm</label>
           <label data-tip="Off: the shell is cut flat at the model's base, so the print sits on the bed as before. On: the bottom gets a shell too (raises the model)."><input id="kb" type="checkbox"> also cover bottom</label>
+        </fieldset>
+        <fieldset class="m-inlays">
+          <legend data-tip="Each painted area becomes a piece with a flat back to print on and straight sides to push in, added to the plate in front of the model. The model gets matching pockets.">Inlays</legend>
+          <label data-tip="Which filament slots become inlays, separated by commas, e.g. 1,4. Empty: every painted filament. The model's own (unpainted) filament is never an inlay.">filaments <input id="inlayF" type="text" placeholder="all" size="6"></label>
+          <label data-tip="What happens to areas that can't be a piece: ones that wrap around the model, or are thinner than 2 mm (the log lists them). Keep as paint: they stay colored layers in the print, which needs color changes. Body color: they are dropped, so the model prints in one filament.">others <select id="ileft"><option value="paint">keep as paint</option><option value="body">body color</option></select></label>
+        </fieldset>
+        <fieldset class="m-inlays">
+          <legend data-tip="How the pieces fit their pockets.">Fit</legend>
+          <label data-tip="How deep the pocket goes below the lowest point of the painted area. On a curved surface the piece is thicker than this in the middle.">depth <input id="idepth" type="number" step="0.1" min="0.4" value="1.5"> mm</label>
+          <label data-tip="Gap left around each piece so it fits its pocket. Increase it if pieces are too tight on your printer.">gap <input id="iclear" type="number" step="0.02" min="0" value="0.1"> mm</label>
         </fieldset>
         <fieldset>
           <legend data-tip="Settings you normally don't need to touch.">Advanced</legend>
@@ -93,6 +109,7 @@
   <span id="sliceZ" class="mono" data-tip="Visible height range (above the build plate). Use the sliders on the right edge of the views.">–</span>
   <button id="cutReset" class="small" hidden data-tip="Remove both cuts: show the whole model again.">reset</button>
   <span class="grow"></span>
+  <label data-tip="Background color of both views, e.g. a lighter one to see a black model. Stored in the link as bg.">background <input id="bg" type="color" value="#16181c"></label>
   <button data-view="iso" data-tip="Reset to the 3/4 view, fitted to the model.">iso</button><button data-view="front" data-tip="Look from the front.">front</button><button data-view="back" data-tip="Look from the back.">back</button>
   <button data-view="left" data-tip="Look from the left.">left</button><button data-view="right" data-tip="Look from the right.">right</button><button data-view="top" data-tip="Look from the top.">top</button>
 </footer>

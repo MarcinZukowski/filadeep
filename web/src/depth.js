@@ -1,6 +1,7 @@
 // Per-color depth: turn surface paint into solid color volumes. Port of depth.py
 // (see there for the method). Plain loops instead of numpy vectorization.
 
+import { planInlays } from "./inlay.js";
 import { KDTree } from "./kdtree.js";
 import { Span } from "./progress.js";
 import { tessellate } from "./paint.js";
@@ -429,8 +430,9 @@ export function selectObjects(proj, name = null) {
  * Returns Map("objId/partId" -> [{name, extruder, vertices, faces}]) in the
  * part's own mesh coordinates.
  */
-export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.45, dmax = 1.6, uniform = null, objectName = null, primer = null, span = new Span() } = {}) {
+export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.45, dmax = 1.6, uniform = null, objectName = null, primer = null, inlay = null, span = new Span() } = {}) {
   const out = new Map();
+  out.inlays = []; // [{object, pieces}] when `inlay` is set (see inlay.js)
   const todo = [];
   for (const obj of selectObjects(proj, objectName))
     for (const part of obj.parts) if (part.subtype === "normal_part" && (part.mesh.painted || core != null)) todo.push([obj, part]);
@@ -443,20 +445,37 @@ export function process(wasm, proj, { depthOverrides = new Map(), core = null, v
       const pe = partExtruder(obj, part);
       const fil = states.map((s) => (s === 0 ? pe : s));
       const coreF = core != null ? core : pe;
+      const V = applyTransform(part.mesh.vertices, W);
+      // Inlays: chosen painted regions become separate pieces; on the model
+      // they turn into body, and their pockets are cut out of all parts below.
+      let pockets = null;
+      if (inlay && part.mesh.painted) {
+        const body = toManifold(wasm, V, part.mesh.faces);
+        const plan = planInlays(wasm, body, world, fil, { ...inlay, bodyFilament: pe });
+        body.delete();
+        for (const k of plan.relabel) fil[k] = pe;
+        pockets = plan.pockets;
+        if (plan.pieces.length) out.inlays.push({ object: obj, pieces: plan.pieces });
+      }
       const depths = new Map();
       for (const f of new Set(fil)) depths.set(f, uniform != null ? uniform : defaultDepth(filamentColor(proj, f), dmin, dmax));
       for (const [f, d] of depthOverrides) depths.set(f, d);
       log(`object '${obj.name}' part '${part.name}': core filament ${coreF}, ${tris.length / 9} sub-triangles`);
-      const V = applyTransform(part.mesh.vertices, W);
       const res = build(wasm, V, part.mesh.faces, world, fil, depths, coreF, { voxel, primer, span: spans[i] });
       const Winv = invert(W);
       const parts = [];
-      if (res.core) parts.push({ name: `${part.name} core`, extruder: coreF, vertices: applyTransform(res.core.vertices, Winv), faces: res.core.faces });
-      for (const f of [...res.plugs.keys()].sort((a, b) => a - b)) {
-        const label = primer && f === primer[0] ? "primer" : `color ${f}`;
-        const p = res.plugs.get(f);
-        parts.push({ name: `${part.name} ${label}`, extruder: f, vertices: applyTransform(p.vertices, Winv), faces: p.faces });
-      }
+      const add = (name, extruder, mesh) => {
+        if (pockets) {
+          const m = toManifold(wasm, mesh.vertices, mesh.faces), cut = m.subtract(pockets);
+          mesh = cut.isEmpty() ? null : fromManifold(cut);
+          m.delete();
+          cut.delete();
+        }
+        if (mesh) parts.push({ name, extruder, vertices: applyTransform(mesh.vertices, Winv), faces: mesh.faces });
+      };
+      if (res.core) add(`${part.name} core`, coreF, res.core);
+      for (const f of [...res.plugs.keys()].sort((a, b) => a - b)) add(`${part.name} ${primer && f === primer[0] ? "primer" : `color ${f}`}`, f, res.plugs.get(f));
+      pockets?.delete();
       out.set(`${obj.id}/${part.id}`, parts);
     }
   }

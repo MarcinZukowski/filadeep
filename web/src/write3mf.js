@@ -45,8 +45,13 @@ function findBlock(xml, tag, id) {
   return [m.index, m.index + m[0].length];
 }
 
-/** replacements: Map("objId/partId" -> [{name, extruder, vertices, faces}]). Returns zip bytes. */
-export function replaceParts(proj, replacements, { level = 6 } = {}) {
+/**
+ * replacements: Map("objId/partId" -> [{name, extruder, vertices, faces}]).
+ * extra: new one-part objects [{name, extruder, vertices, faces, at: [x, y, z], plateOf: objId}],
+ *        placed at `at` on the plate that holds object `plateOf`.
+ * Returns zip bytes.
+ */
+export function replaceParts(proj, replacements, { level = 6, extra = [] } = {}) {
   const files = { ...proj.files };
   const text = (n) => dec.decode(files[n]);
   const rootPath = proj.rootPath;
@@ -103,6 +108,49 @@ export function replaceParts(proj, replacements, { level = 6 } = {}) {
         const total = parts.reduce((s, p) => s + p.faces.length / 3, 0);
         sblock = sblock.replace(/<metadata face_count="\d+"\/>/, `<metadata face_count="${total}"/>`);
         settings = settings.slice(0, s0) + sblock + settings.slice(s1);
+      }
+    }
+  }
+  if (extra.length) {
+    const xmlEsc = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    const objfile = "3D/Objects/filadeep_extra.model";
+    const meshes = [], objects = [], items = [], sobjs = [];
+    for (const e of extra) {
+      const meshId = nextId++, objId = nextId++;
+      meshes.push([meshId, e]);
+      objects.push(`  <object id="${objId}" p:UUID="${uuid()}" type="model">\n   <components>\n    <component p:path="/${objfile}" objectid="${meshId}" p:UUID="${uuid()}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n   </components>\n  </object>\n`);
+      items.push(`  <item objectid="${objId}" p:UUID="${uuid()}" transform="1 0 0 0 1 0 0 0 1 ${num(e.at[0])} ${num(e.at[1])} ${num(e.at[2])}" printable="1"/>\n`);
+      sobjs.push({ objId, plateOf: e.plateOf, xml:
+        `  <object id="${objId}">\n    <metadata key="name" value="${xmlEsc(e.name)}"/>\n    <metadata key="extruder" value="${e.extruder}"/>\n` +
+        `    <metadata face_count="${e.faces.length / 3}"/>\n    <part id="${meshId}" subtype="normal_part">\n      <metadata key="name" value="${xmlEsc(e.name)}"/>\n` +
+        `      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n` +
+        `      <mesh_stat face_count="${e.faces.length / 3}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n    </part>\n  </object>\n` });
+    }
+    files[objfile] = enc.encode(objectFile(meshes));
+    const before = (xml, re, add, what) => {
+      const m = re.exec(xml);
+      if (!m) throw new Error(`cannot add objects: ${what} not found`);
+      return xml.slice(0, m.index) + add + xml.slice(m.index);
+    };
+    root = before(root, /[ \t]*<\/resources>/, objects.join(""), "</resources>");
+    root = before(root, /[ \t]*<\/build>/, items.join(""), "</build>");
+    const relsPath = rootPath.replace(/([^/]+)$/, "_rels/$1.rels");
+    if (files[relsPath]) {
+      const rels = text(relsPath);
+      if (!rels.includes(`/${objfile}`))
+        files[relsPath] = enc.encode(rels.replace("</Relationships>", ` <Relationship Target="/${objfile}" Id="rel-filadeep" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n</Relationships>`));
+    }
+    if (settings) {
+      const firstPlate = settings.search(/[ \t]*<plate>/);
+      if (firstPlate < 0) throw new Error("cannot add objects: <plate> not found");
+      settings = settings.slice(0, firstPlate) + sobjs.map((o) => o.xml).join("") + settings.slice(firstPlate);
+      // Each new object joins the plate of the object it belongs to (else the first plate).
+      for (const o of sobjs) {
+        const plates = [...settings.matchAll(/<plate>[\s\S]*?<\/plate>/g)];
+        const home = plates.find((m) => new RegExp(`<metadata key="object_id" value="${esc(String(o.plateOf))}"/>`).test(m[0])) ?? plates[0];
+        const end = home.index + home[0].lastIndexOf("</plate>");
+        const inst = `  <model_instance>\n      <metadata key="object_id" value="${o.objId}"/>\n      <metadata key="instance_id" value="0"/>\n    </model_instance>\n  `;
+        settings = settings.slice(0, end) + inst + settings.slice(end);
       }
     }
   }

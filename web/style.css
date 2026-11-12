@@ -72,3 +72,13 @@ button.active { border-color: var(--accent); color: #fff; }
 button.small { padding: 1px 8px; font-size: 12px; }
 button[hidden] { display: none; }
 .demos a { color: var(--text); }
+.head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.head h2 { margin: 0; }
+.tabs { display: flex; }
+.tabs button { border-radius: 0; padding: 2px 12px; font-size: 12px; color: var(--muted); }
+.tabs button:first-child { border-radius: 5px 0 0 5px; }
+.tabs button:last-child { border-radius: 0 5px 5px 0; border-left: 0; }
+.tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.controls[data-mode=layers] .m-inlays, .controls[data-mode=inlays] .m-layers { display: none; }
+input[type=color] { padding: 0 2px; width: 30px; height: 22px; vertical-align: middle; }
+footer label { display: flex; align-items: center; gap: 6px; }
