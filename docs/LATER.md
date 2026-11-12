@@ -78,9 +78,10 @@ Profiled: ~80% is KD-tree distance queries over the voxel grid.
 
 ## Test plate
 `layerfun testmodel -o models/testshapes.3mf --template models/template-h2c.3mf`
-uses 5 slots (H2C: 4 AMS + side feed): 1 black PLA-CF (paint + core), 2 green,
-3 light blue, 4 white (paint + primer), 5 translucent PLA (shell). Derived files:
-`depth`, `core --filament 1`, `core --filament 1 --primer 4 --skin 1.0`,
+uses 5 slots (H2C: 4 AMS + side feed): 1 green and 2 light blue PLA Silk+,
+3 black PLA-CF (paint + core), 4 white PLA Basic (paint + primer), 5 red
+translucent PLA-PVB (shell). Derived files:
+`depth`, `core --filament 3`, `core --filament 3 --primer 4 --skin 1.0`,
 `shell --filament 5`. It writes a cube/pyramid/sphere plate covering dark-on-light, light-on-dark, thin
 lines, sloped/near-horizontal paint. `--template` copies the slicer settings,
 Application tag and nozzle map from a real Bambu project (without it Bambu slices

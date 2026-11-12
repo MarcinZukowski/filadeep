@@ -3,5 +3,7 @@ __pycache__/
 *.pyc
 .DS_Store
 *_regions/
-models/
+models/*
 result.json
+!models/template-h2c.3mf
+!models/testshapes.3mf

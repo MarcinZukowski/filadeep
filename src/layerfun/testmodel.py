@@ -9,11 +9,13 @@ Covers the cases LayerFun cares about, in ~1/10 of the kitsune's processing time
 
 Palette = 5 slots (what an H2C feeds easily: 4 AMS + 1 side feed). A real Bambu
 project with the same slots should be used as a settings template (`--template`):
-  1 black PLA-CF   paint + core        (core --filament 1)
-  2 green PLA      paint
-  3 light blue PLA paint
-  4 white PLA      paint + primer      (core --primer 4)
-  5 translucent    shell, 50% alpha    (shell --filament 5)
+  1 green PLA Silk+       paint
+  2 light blue PLA Silk+  paint
+  3 black PLA-CF          paint + core     (core --filament 3)
+  4 white PLA Basic       paint + primer   (core --primer 4)
+  5 translucent PLA-PVB   shell            (shell --filament 5)
+The template's colours are kept (e.g. a #RRGGBBAA translucent shell); COLORS are
+used only without a template.
 """
 
 from __future__ import annotations
@@ -25,10 +27,10 @@ from pathlib import Path
 
 import numpy as np
 
-BLACK, GREEN, BLUE, WHITE, SHELL = 1, 2, 3, 4, 5
+GREEN, BLUE, BLACK, WHITE, SHELL = 1, 2, 3, 4, 5
 # The shell slot is 50% transparent (#RRGGBBAA), so Bambu shows what is underneath.
-COLORS = ["#000000", "#A1FFAC", "#A4DBE8", "#FFFFFF", "#2850E080"]
-TYPES = ["PLA-CF", "PLA", "PLA", "PLA", "PLA"]
+COLORS = ["#A1FFAC", "#A4DBE8", "#000000", "#FFFFFF", "#FB000780"]
+TYPES = ["PLA", "PLA", "PLA-CF", "PLA", "PLA"]
 PAINT = {1: "4", 2: "8", 3: "0C", 4: "1C", 5: "2C", 6: "3C"}  # whole-triangle paint codes
 
 
@@ -227,16 +229,12 @@ def write(path: str | Path, template: str | Path | None = None, scale: float = 1
         + f'\n  <plate>\n    <metadata key="plater_id" value="1"/>\n    <metadata key="locked" value="false"/>{plate_extra}\n{plate}\n  </plate>\n</config>\n'
     )
     if tmpl_settings:
-        cfg = json.loads(tmpl_settings)
-        n = len(cfg.get("filament_colour", []))
+        n = len(json.loads(tmpl_settings).get("filament_colour", []))
         if n != len(COLORS):
             from .depth import log
 
             log(f"warning: template has {n} filament slots, the test plate expects {len(COLORS)} (see module docstring)")
-        for k in ("filament_colour", "filament_multi_colour"):
-            if k in cfg and len(cfg[k]) == len(COLORS):
-                cfg[k] = COLORS
-        files["Metadata/project_settings.config"] = json.dumps(cfg, indent=4)
+        files["Metadata/project_settings.config"] = tmpl_settings
     else:
         files["Metadata/project_settings.config"] = json.dumps({"filament_colour": COLORS, "filament_type": TYPES}, indent=4)
     files["[Content_Types].xml"] = (
