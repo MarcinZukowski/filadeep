@@ -4,6 +4,8 @@ FilaDeep takes a color-painted Bambu Studio / OrcaSlicer project (`.3mf`) and
 turns the paint into real solid parts, so you control how deep each color goes.
 It runs entirely in the browser; nothing is uploaded.
 
+**Try it: https://marcinzukowski.github.io/filadeep/**
+
 ## The problem
 
 When you paint a model in the slicer, the slicer decides how deep each color
@@ -91,9 +93,13 @@ node web/bench.mjs in.3mf out.3mf --core 3 --skin 1.2 --primer 4 --shell 5
 
 ## Hosting
 
-`web/` is a static site: any static host works once `npm install` has run
-there. It must be served over http(s); opening `index.html` from disk does not
-work.
+The app is published at https://marcinzukowski.github.io/filadeep/ by
+`.github/workflows/pages.yml` on every push to `main`.
+
+`web/` is a static site, so any static host works: `web/make-site.sh <outdir>`
+copies the app and the few library files it needs (about 6 MB) into a folder you
+can upload. It must be served over http(s); opening `index.html` from disk does
+not work.
 
 ## Python version
 
