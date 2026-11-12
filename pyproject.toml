@@ -1,5 +1,5 @@
 [project]
-name = "layerfun"
+name = "filadeep"
 version = "0.1.0"
 description = "Modify painted multi-color 3MF files for better color prints"
 readme = "README.md"
@@ -18,7 +18,7 @@ requires = ["uv_build>=0.13.5,<0.14.0"]
 build-backend = "uv_build"
 
 [project.scripts]
-layerfun = "layerfun.cli:main"
+filadeep = "filadeep.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

@@ -3,7 +3,7 @@ import math
 import pytest
 from conftest import cube, make_3mf
 
-from layerfun import depth, shell, testmodel, threemf, write3mf
+from filadeep import depth, shell, testmodel, threemf, write3mf
 
 COLORS = ["#FFFFFF", "#000000", "#E8C060", "#2850E0"]
 
@@ -76,8 +76,8 @@ def test_core_with_primer(painted_cube):
 
 
 def test_penguin_example_is_solid_and_painted():
-    from layerfun import penguin
-    from layerfun.depth import to_manifold
+    from filadeep import penguin
+    from filadeep.depth import to_manifold
 
     v, f = penguin.mesh(voxel=1.0)
     m = to_manifold(v, f)

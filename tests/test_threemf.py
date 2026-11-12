@@ -5,7 +5,7 @@ import zipfile
 
 import pytest
 
-from layerfun import regions, threemf
+from filadeep import regions, threemf
 
 ROOT = """<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
@@ -58,7 +58,7 @@ SETTINGS = """<?xml version="1.0" encoding="UTF-8"?>
 
 @pytest.fixture
 def tetra(tmp_path):
-    from layerfun.paint import Node, encode
+    from filadeep.paint import Node, encode
 
     split = encode(Node(split_sides=1, special_side=0, children=[Node(state=3), Node(state=0)]))
     p = tmp_path / "tetra.3mf"

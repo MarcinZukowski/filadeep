@@ -21,7 +21,7 @@ Bambu reports "saved nozzle purges" 1279 vs 1163; same thing.
   - Anisotropic depth: measure depth with z scaled up (layers are solid and
     opaque stacked vertically, so top/bottom-facing colors may need less
     vertical depth than walls need horizontally). Also trims the ~11 extra layers.
-  - Report per-color "layers used" and estimated purges in `layerfun info`/`depth`
+  - Report per-color "layers used" and estimated purges in `filadeep info`/`depth`
     so the trade-off is visible before slicing.
 
 ### Longer print time (+1.5–2 h)
@@ -65,7 +65,7 @@ Ideas left:
 - Output size: ~2.5M triangles / 18 MB zipped; could simplify shells more.
 
 ## Features from IDEA.md
-- **#1 core** and **#3 shell** have first versions (`layerfun core`, `layerfun shell`).
+- **#1 core** and **#3 shell** have first versions (`filadeep core`, `filadeep shell`).
   Open points:
   - Shell bakes paint into solid color parts first (as `depth`): Bambu drops paint
     on faces that aren't the object's outside, so under a shell it vanished.
@@ -113,7 +113,7 @@ A paint-aware simplifier (half-edge collapse inside same-paint regions, paint
 boundaries fixed) would help such inputs; the web UI warns above 1M triangles.
 
 ## Test plate
-`layerfun testmodel -o web/models/testshapes.3mf --template models/template-h2c.3mf`
+`filadeep testmodel -o web/models/testshapes.3mf --template models/template-h2c.3mf`
 uses 5 slots (H2C: 4 AMS + side feed): 1 green and 2 light blue PLA Silk+,
 3 black PLA-CF (paint + core), 4 white PLA Basic (paint + primer), 5 red
 translucent PLA-PVB (shell). Derived files:
@@ -125,9 +125,9 @@ with its defaults and ignores the paint). ~12–27 s per command vs ~45–90 s f
 kitsune.
 
 ## Tooling ideas
-- `layerfun gcode-layer`: render a layer of sliced G-code colored by filament
+- `filadeep gcode-layer`: render a layer of sliced G-code colored by filament
   (exists as a scratch script; was the most useful verification tool).
-- `layerfun check`: skin-color mismatch vs paint, flipped faces, films (also
+- `filadeep check`: skin-color mismatch vs paint, flipped faces, films (also
   scratch scripts today).
 - Paint-edge smoothing (`--smooth`) exists, off by default; revisit if paint
   sawtooth matters visually.
@@ -139,4 +139,4 @@ kitsune.
 
 ## Notes
 - dither3d (github.com/mpetito/dither3d) is AGPL-3.0: fine to learn the format
-  from, copying code would make LayerFun AGPL (including the website).
+  from, copying code would make FilaDeep AGPL (including the website).

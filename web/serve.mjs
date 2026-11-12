@@ -30,4 +30,4 @@ createServer(async (req, res) => {
     }
   }
   res.writeHead(404).end("not found");
-}).listen(port, () => console.log(`LayerFun web: http://localhost:${port}/`));
+}).listen(port, () => console.log(`FilaDeep web: http://localhost:${port}/`));

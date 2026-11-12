@@ -3,8 +3,8 @@ import random
 import numpy as np
 import pytest
 
-from layerfun import paint
-from layerfun.paint import Node
+from filadeep import paint
+from filadeep.paint import Node
 
 
 # Single-leaf strings as they appear in Bambu/Prusa files.

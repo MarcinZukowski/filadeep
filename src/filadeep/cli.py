@@ -1,4 +1,4 @@
-"""layerfun command line."""
+"""filadeep command line."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def cmd_testmodel(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="layerfun", description="Tools for painted multi-color 3MF files.")
+    ap = argparse.ArgumentParser(prog="filadeep", description="Tools for painted multi-color 3MF files.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("info", help="summarize objects, parts and painted areas")
     p.add_argument("file")

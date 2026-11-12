@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from conftest import cube, make_3mf
 
-from layerfun import depth, threemf, write3mf
+from filadeep import depth, threemf, write3mf
 
 
 @pytest.fixture

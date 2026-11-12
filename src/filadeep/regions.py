@@ -57,7 +57,7 @@ def write_stl(path: Path, tris: np.ndarray) -> None:
     rec["n"] = n
     rec["v"] = tris
     with open(path, "wb") as f:
-        f.write(b"layerfun".ljust(80, b"\0"))
+        f.write(b"filadeep".ljust(80, b"\0"))
         f.write(np.uint32(len(tris)).tobytes())
         f.write(rec.tobytes())
 

@@ -1,4 +1,4 @@
-LayerFun
+FilaDeep
 
 A tool (+website) to do some custom modifications to 3mf files, focused
 on color printing.

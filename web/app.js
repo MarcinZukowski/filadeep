@@ -1,4 +1,4 @@
-// LayerFun web UI: source and output views with a shared camera and layer slice,
+// FilaDeep web UI: source and output views with a shared camera and layer slice,
 // options <-> URL hash, processing in a Web Worker.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -707,7 +707,7 @@ function runJob() {
       $("log").scrollTop = 1e9;
     } else if (data.type === "done") {
       done();
-      result = { bytes: data.bytes, name: source.name.replace(/\.3mf$/i, "") + "-layerfun.3mf" };
+      result = { bytes: data.bytes, name: source.name.replace(/\.3mf$/i, "") + "-filadeep.3mf" };
       $("save").disabled = false;
       showOutput(data.parts, source.proj);
       const outBox = new THREE.Box3();

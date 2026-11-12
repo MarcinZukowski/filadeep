@@ -1,6 +1,6 @@
 """Generate a small painted test plate: cube, pyramid and sphere.
 
-Covers the cases LayerFun cares about, in ~1/10 of the kitsune's processing time:
+Covers the cases FilaDeep cares about, in ~1/10 of the kitsune's processing time:
   - dark details on a light body (eyes bleeding through)       cube front, sphere
   - light details on a dark body (too shallow, 1 layer)         cube right, pyramid
   - thin lines (0.8 mm) next to thick ones (4 mm)               cube right, sphere
@@ -185,7 +185,7 @@ def write(path: str | Path, template: str | Path | None = None, scale: float = 1
     if template:
         tmpl_settings, app, plate_extra = _template_bits(template)
     else:
-        tmpl_settings, app, plate_extra = None, "LayerFun", ""
+        tmpl_settings, app, plate_extra = None, "FilaDeep", ""
     ns = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"'
     root_objs, items, settings, rels, files = [], [], [], [], {}
     for i, (name, v, f, default, painter) in enumerate(shapes):
