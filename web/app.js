@@ -810,11 +810,15 @@ document.addEventListener("focusout", hideTip);
 
 // ------------------------------------------------------------------ start
 
+const DEFAULT_SRC = "models/testshapes.3mf";
+
 async function start() {
   const p = fromHash();
   if (p.has("src")) {
     await loadUrl(p.get("src"));
     if (p.get("run") === "1" && source) runJob();
+  } else if (!source) {
+    await loadUrl(DEFAULT_SRC); // something to look at on a first visit
   }
   renderAll();
 }

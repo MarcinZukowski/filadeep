@@ -12,8 +12,8 @@ uv run layerfun core  model.3mf --filament 3 --skin 1.2     # #1 colored skin + 
 uv run layerfun core  model.3mf --filament 3 --primer 4     #    ...with a primer layer between (e.g. white over black PLA-CF)
 uv run layerfun shell model.3mf --filament 5 --thickness 1  # #3 wrap in another filament (e.g. PVB / translucent PLA)
 
-uv run layerfun testmodel -o models/testshapes.3mf --template models/template-h2c.3mf
-uv run layerfun testmodel --model penguin -o models/penguin.3mf --template models/template-h2c.3mf   # organic example
+uv run layerfun testmodel -o web/models/testshapes.3mf --template models/template-h2c.3mf
+uv run layerfun testmodel --model penguin -o web/models/penguin.3mf --template models/template-h2c.3mf   # organic example
 ```
 
 Each command writes `<file>-<command>.3mf` (or `-o`). Filament slots must already exist
@@ -32,8 +32,9 @@ node web/serve.mjs            # http://localhost:8000/
 ```
 
 - Load a model from a URL (the server must allow CORS), a file, or drag & drop.
-  Locally, `/models/...` is served from the repo: `http://localhost:8000/#src=/models/testshapes.3mf`
+  The demos live in `web/models/` and are referenced relative to the page: `#src=models/testshapes.3mf`.
+  The dev server also serves the repo's untracked `models/` under the same path, for private models.
 - Options live in the URL hash; "Copy link" gives a link with the source URL and
-  all settings, e.g. `#src=/models/testshapes.3mf&core=3&primer=4&skin=1.0&shell=5`
+  all settings, e.g. `#src=models/testshapes.3mf&core=3&primer=4&skin=1.0&shell=5`
   (add `&run=1` to start processing on load).
 - `node web/bench.mjs in.3mf out.3mf [--core 3 --skin 1 --primer 4] [--shell 5]` runs it in Node.
