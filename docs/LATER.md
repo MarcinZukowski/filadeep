@@ -43,18 +43,22 @@ Is 0.45 mm of black enough to cover? Is 1.5 mm of light green enough over a blue
 core? A small test piece (cut section of the head with eyes + a swirl) would answer
 this and calibrate default depths.
 
-## Speed (depth step: ~45 s light kitsune, ~80 s black)
-Profiled: ~80% is KD-tree distance queries over the voxel grid.
-- Done: batch queries, narrow-band prefilter (−15%).
-- One pass for all colors: query each grid point once against an all-samples tree
-  (nearest label + distance) instead of re-evaluating overlapping blocks per color.
-- Grid-native distances: rasterize labeled surface into the voxel grid and use an
-  exact EDT (`scipy.ndimage.distance_transform_edt` with indices) per block with a
-  halo, instead of KD queries on 0.1 mm surface samples.
-- Fewer surface samples (spacing 0.1 → 0.15 mm), check accuracy impact.
-- numba / compiled inner loop for field + marching tets.
-- Output size: ~2.5M triangles / 30 MB; could simplify the shells more, or
-  decimate interior-only faces harder.
+## Speed (depth: black kitsune 93 s -> 20 s, light ~45 s -> 16 s; output identical)
+Done:
+- `np.unique(axis=0)` sorted rows as byte records: 60 s of the 93. Replaced by
+  `unique_rows` (pack int rows into one int64 key).
+- Narrow band precomputed once per shell on a 1 mm cell grid (lookup per point).
+- One KD-tree per filament, built once (`balanced_tree=False`: 2x faster build,
+  same query speed); duplicate vertex samples removed.
+- Isosurface batches run in 3 threads (KD queries overlap numpy marching tets).
+Remaining (black kitsune, ~20 s): black isosurface ~6 s, green ~3 s, manifold +
+simplify ~3 s, load ~2 s (paint tessellation), write ~3 s (zlib level 6; level 1
+would save ~1 s for +24% file size).
+Ideas left:
+- Grid-native distances (EDT per block) instead of KD queries on 0.1 mm samples.
+- Fewer surface samples (spacing 0.1 -> 0.15 mm), check accuracy impact.
+- Marching tets vectorized over a whole batch of blocks (now ~2000 small calls).
+- Output size: ~2.5M triangles / 18 MB zipped; could simplify shells more.
 
 ## Features from IDEA.md
 - **#1 core** and **#3 shell** have first versions (`layerfun core`, `layerfun shell`).

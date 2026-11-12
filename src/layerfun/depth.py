@@ -65,6 +65,33 @@ def from_manifold(m: m3d.Manifold) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(mesh.vert_properties)[:, :3].copy(), np.asarray(mesh.tri_verts).astype(np.int64)
 
 
+def unique_rows(a: np.ndarray, return_index: bool = False, return_inverse: bool = False):
+    """np.unique(a, axis=0) for integer rows, much faster.
+
+    numpy's axis=0 path sorts rows as opaque byte records (~50x slower than an
+    integer sort); here each row is packed into one int64 key first.
+    """
+    a = np.asarray(a)
+    lo = a.min(0)
+    span = (a.max(0) - lo + 1).astype(object)  # python ints: exact overflow check
+    total = 1
+    for x in span:
+        total *= int(x)
+    if total >= 2**63:
+        return np.unique(a, axis=0, return_index=return_index, return_inverse=return_inverse)
+    key = np.zeros(len(a), np.int64)
+    for k in range(a.shape[1]):
+        key = key * np.int64(span[k]) + (a[:, k] - lo[k]).astype(np.int64)
+    res = np.unique(key, return_index=True, return_inverse=return_inverse)
+    first = res[1]
+    out = (a[first],)
+    if return_index:
+        out += (first,)
+    if return_inverse:
+        out += (res[2].ravel(),)
+    return out[0] if len(out) == 1 else out
+
+
 def smooth_labels(pts: np.ndarray, lab: np.ndarray, radius: float, k: int = 24) -> np.ndarray:
     """Majority vote of labels among each sample's neighbours within `radius`.
 
@@ -93,8 +120,15 @@ def sample_surface(tris: np.ndarray, labels: np.ndarray, spacing: float, seed: i
     r[flip] = 1 - r[flip]
     pts = tris[idx, 0] + e1[idx] * r[:, :1] + e2[idx] * r[:, 1:]
     # Always include vertices so tiny triangles and sharp corners are covered.
-    pts = np.concatenate([pts, tris.reshape(-1, 3)])
-    lab = np.concatenate([labels[idx], np.repeat(labels, 3)])
+    # Shared vertices repeat ~6x; keep one copy per (vertex, label) — a vertex on
+    # a paint edge must stay in both labels' sets.
+    vp, vl = tris.reshape(-1, 3), np.repeat(labels, 3)
+    o = np.lexsort((vl, vp[:, 2], vp[:, 1], vp[:, 0]))
+    vp, vl = vp[o], vl[o]
+    keep = np.ones(len(vp), bool)
+    keep[1:] = np.any(vp[1:] != vp[:-1], axis=1) | (vl[1:] != vl[:-1])
+    pts = np.concatenate([pts, vp[keep]])
+    lab = np.concatenate([labels[idx], vl[keep]])
     return pts, lab
 
 
@@ -194,10 +228,12 @@ def _isosurface_blocks(field, lo: np.ndarray, voxel: float, shape: np.ndarray, a
     # Evaluate the field for many blocks per call: KD-tree queries spin up
     # threads per call, so a few big calls beat thousands of small ones.
     batch = max(1, batch_points // (block + 1) ** 3)
-    for s0 in range(0, len(blocks), batch):
-        chunk = blocks[s0 : s0 + batch]
+    eps = 1e-3 * voxel
+
+    def run(chunk):
         pts = [grid_points(i0, i1) for i0, i1 in chunk]
         gs = np.split(field(np.concatenate(pts)), np.cumsum([len(p) for p in pts])[:-1])
+        out_k, out_p = [], []
         for (i0, i1), g in zip(chunk, gs):
             g = g.reshape(tuple(i1 - i0))
             # Outermost grid layer must be "outside" so surfaces close.
@@ -208,7 +244,6 @@ def _isosurface_blocks(field, lo: np.ndarray, voxel: float, shape: np.ndarray, a
                     g[(slice(None),) * k + (-1,)] = -voxel
             # Keep values off the iso-level so vertices lie strictly inside edges.
             # (Before the emptiness check, so neighbouring blocks agree.)
-            eps = 1e-3 * voxel
             small = np.abs(g) < eps
             g[small] = np.where(g[small] < 0, -eps, eps)
             if g.max() <= 0 or g.min() > 0:
@@ -216,13 +251,25 @@ def _isosurface_blocks(field, lo: np.ndarray, voxel: float, shape: np.ndarray, a
             r = _marching_tets(g, i0, shape)
             if r is None:
                 continue
-            all_k.append(r[0].reshape(-1, 2))
-            all_p.append(r[1].reshape(-1, 3))
+            out_k.append(r[0].reshape(-1, 2))
+            out_p.append(r[1].reshape(-1, 3))
+        return out_k, out_p
+
+    # Batches in parallel threads: the KD queries (multithreaded C++) of one
+    # batch overlap with the single-threaded numpy work of another. Results
+    # are collected in batch order, so the output is deterministic.
+    from concurrent.futures import ThreadPoolExecutor
+
+    chunks = [blocks[s0 : s0 + batch] for s0 in range(0, len(blocks), batch)]
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        for out_k, out_p in ex.map(run, chunks):
+            all_k += out_k
+            all_p += out_p
     if not all_k:
         return None
     k = np.concatenate(all_k)
     p = np.concatenate(all_p)
-    uk, first, inv = np.unique(k, axis=0, return_index=True, return_inverse=True)
+    uk, first, inv = unique_rows(k, return_index=True, return_inverse=True)
     v = lo + p[first] * voxel
     f = inv.ravel().reshape(-1, 3)
     return v, f
@@ -273,20 +320,33 @@ def build(
 
     order = [f for f in sorted(depths, key=lambda f: depths[f]) if f != core_filament and np.any(lab == f)]
 
+    # One tree per filament, built once and shared by every shell (and primer).
+    label_trees = {int(f): cKDTree(pts[lab == f], balanced_tree=False) for f in np.unique(lab)}
+    log(f"trees built for {len(label_trees)} filaments")
+
     def make_shell(k: int, d: float, rest_off: float = 0.0) -> m3d.Manifold | None:
         """Shell of color order[k] reaching depth d (extends outside the body)."""
         f = order[k]
-        earlier = np.isin(lab, order[:k])
-        later = np.isin(lab, order[k + 1 :])
-        rest = ~(earlier | later | (lab == f))  # core-colored surface
+        offset = {g: (overlap * voxel if g in order[:k] else 0.0 if g in order[k + 1 :] else rest_off) for g in label_trees}
+        tree_f = label_trees[f]
+        trees = [(t, offset[g]) for g, t in label_trees.items() if g != f]
         mine = pts[lab == f]
-        tree_f = cKDTree(mine)
-        trees = [(cKDTree(pts[m]), off) for m, off in ((rest, rest_off), (later, 0.0), (earlier, overlap * voxel)) if m.any()]
         reach_mm = d + 2 * voxel
         margin = d + 3 * voxel
         lo = lo_all - margin
         shape = np.ceil((hi_all + margin - lo) / voxel).astype(int) + 1
-        band_cell = 4 * voxel
+
+        # Narrow band: coarse cells of CELL x CELL x CELL grid points; a cell
+        # whose centre is farther than reach + half-diagonal from f's surface
+        # can't contain shell points. Computed once per shell, then each grid
+        # point just looks up its cell (same answer in every block).
+        CELL = 4
+        cshape = shape // CELL + 1
+        cidx = np.stack(np.meshgrid(*[np.arange(n) for n in cshape], indexing="ij"), -1).reshape(-1, 3)
+        centre = lo + (cidx * CELL + (CELL - 1) / 2) * voxel
+        half_diag = np.sqrt(3) * (CELL - 1) / 2 * voxel
+        dc, _ = tree_f.query(centre, distance_upper_bound=reach_mm + half_diag, workers=-1)
+        cellmask = np.isfinite(dc).reshape(tuple(cshape))
 
         def field(p):
             # Inside shell f: within depth d of f's surface and nearer to it
@@ -294,14 +354,8 @@ def build(
             # reach `overlap` further; those get subtracted, so the shared
             # wall comes from the earlier color alone (no gaps, no slivers).
             g = np.full(len(p), -voxel, dtype=np.float64)
-            # Narrow band: test coarse cells first; a cell whose centre is
-            # farther than reach + half-diagonal can't contain shell points.
-            # (Cells are aligned to absolute coordinates, so every block makes
-            # the same decision for a shared grid point.)
-            cell = np.floor(p / band_cell).astype(np.int64)
-            uc, inv = np.unique(cell, axis=0, return_inverse=True)
-            dc, _ = tree_f.query((uc + 0.5) * band_cell, distance_upper_bound=reach_mm + band_cell * 0.8661, workers=-1)
-            cand = np.isfinite(dc)[inv.ravel()]
+            gi = np.rint((p - lo) / voxel).astype(np.int64) // CELL
+            cand = cellmask[gi[:, 0], gi[:, 1], gi[:, 2]]
             near = np.zeros(len(p), bool)
             df = np.full(len(p), np.inf)
             if cand.any():
@@ -319,15 +373,16 @@ def build(
 
         # Blocks that can contain part of this shell.
         reach = int(np.ceil(margin / (voxel * block)))
-        bidx = np.unique(((mine - lo) / (voxel * block)).astype(int), axis=0)
+        bidx = unique_rows(((mine - lo) / (voxel * block)).astype(int))
         offs = np.stack(np.meshgrid(*[np.arange(-reach, reach + 1)] * 3, indexing="ij"), -1).reshape(-1, 3)
-        cand = np.unique((bidx[:, None, :] + offs[None]).reshape(-1, 3), axis=0)
+        cand = unique_rows((bidx[:, None, :] + offs[None]).reshape(-1, 3))
         nblk = np.ceil(shape / block).astype(int)
         cand = cand[np.all((cand >= 0) & (cand < nblk), axis=1)]
         log(f"filament {f}: depth {d:.2f} mm, {len(mine)} samples, {len(cand)} blocks")
         iso = _isosurface_blocks(field, lo, voxel, shape, [tuple(c) for c in cand], block)
         if iso is None:
             return None
+        log(f"filament {f}: isosurface {len(iso[1])} tris")
         shell = to_manifold(*iso)
         n0 = shell.num_tri()
         # Marching tets is very dense; flatten it before the booleans. Only the

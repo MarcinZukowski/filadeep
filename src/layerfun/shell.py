@@ -22,7 +22,7 @@ import manifold3d as m3d
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .depth import _isosurface_blocks, from_manifold, log, sample_surface, to_manifold
+from .depth import _isosurface_blocks, from_manifold, log, sample_surface, to_manifold, unique_rows
 
 
 def build_shell(
@@ -39,7 +39,7 @@ def build_shell(
     tris = v[f]
     log(f"body: {body.num_tri()} tris, volume {body.volume():.0f} mm³")
     pts, _ = sample_surface(tris, np.zeros(len(tris), np.int32), spacing=voxel * 0.4)
-    tree = cKDTree(pts)
+    tree = cKDTree(pts, balanced_tree=False)
     reach_mm = thickness + 2 * voxel
     margin = thickness + 3 * voxel
     lo = tris.reshape(-1, 3).min(0) - margin
@@ -50,7 +50,7 @@ def build_shell(
     def field(p):
         g = np.full(len(p), -voxel)
         cell = np.floor(p / band_cell).astype(np.int64)
-        uc, inv = np.unique(cell, axis=0, return_inverse=True)
+        uc, inv = unique_rows(cell, return_inverse=True)
         dc, _ = tree.query((uc + 0.5) * band_cell, distance_upper_bound=reach_mm + band_cell * 0.8661, workers=-1)
         cand = np.isfinite(dc)[inv.ravel()]
         if cand.any():
@@ -59,9 +59,9 @@ def build_shell(
         return g
 
     reach = int(np.ceil(margin / (voxel * block)))
-    bidx = np.unique(((pts - lo) / (voxel * block)).astype(int), axis=0)
+    bidx = unique_rows(((pts - lo) / (voxel * block)).astype(int))
     offs = np.stack(np.meshgrid(*[np.arange(-reach, reach + 1)] * 3, indexing="ij"), -1).reshape(-1, 3)
-    cand = np.unique((bidx[:, None, :] + offs[None]).reshape(-1, 3), axis=0)
+    cand = unique_rows((bidx[:, None, :] + offs[None]).reshape(-1, 3))
     nblk = np.ceil(shape / block).astype(int)
     cand = cand[np.all((cand >= 0) & (cand < nblk), axis=1)]
     log(f"shell {thickness:.2f} mm: {len(pts)} samples, {len(cand)} blocks")

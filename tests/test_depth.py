@@ -46,3 +46,12 @@ def test_cube_top_plug(top_painted_cube, tmp_path):
     assert sorted(obj.part_extruder(p) for p in obj.parts) == [1, 2]
     assert all(p.mesh.painted_count == 0 for p in obj.parts)
     assert np.allclose(obj.transform, proj.objects[0].transform)
+
+
+def test_unique_rows_matches_numpy():
+    rng = np.random.default_rng(1)
+    a = rng.integers(-50, 50, size=(5000, 3))
+    u, i, inv = np.unique(a, axis=0, return_index=True, return_inverse=True)
+    u2, i2, inv2 = depth.unique_rows(a, return_index=True, return_inverse=True)
+    assert np.array_equal(u, u2) and np.array_equal(u[inv.ravel()], a) and np.array_equal(u2[inv2], a)
+    assert np.array_equal(a[i2], u2)

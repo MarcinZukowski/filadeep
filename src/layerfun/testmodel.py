@@ -27,6 +27,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .depth import unique_rows
+
 GREEN, BLUE, BLACK, WHITE, SHELL = 1, 2, 3, 4, 5
 # The shell slot is 50% transparent (#RRGGBBAA), so Bambu shows what is underneath.
 COLORS = ["#A1FFAC", "#A4DBE8", "#000000", "#FFFFFF", "#FB000780"]
@@ -44,7 +46,7 @@ def subdivide(v: np.ndarray, f: np.ndarray, max_edge: float, project=None):
         if e <= max_edge:
             return v, f
         edges = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
-        uniq, inv = np.unique(edges, axis=0, return_inverse=True)
+        uniq, inv = unique_rows(edges, return_inverse=True)
         mids = (v[uniq[:, 0]] + v[uniq[:, 1]]) / 2
         if project is not None:
             mids = project(mids)
