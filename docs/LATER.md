@@ -64,7 +64,7 @@ Ideas left:
 - Marching tets vectorized over a whole batch of blocks (now ~2000 small calls).
 - Output size: ~2.5M triangles / 18 MB zipped; could simplify shells more.
 
-## Features from IDEA.md
+## The three features (core, color depth, shell)
 - **#1 core** and **#3 shell** have first versions (`filadeep core`, `filadeep shell`).
   Open points:
   - Shell bakes paint into solid color parts first (as `depth`): Bambu drops paint

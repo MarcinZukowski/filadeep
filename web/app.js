@@ -52,6 +52,7 @@ class View {
     this.controls = new OrbitControls(camera, canvas);
     this.controls.target = target; // shared
     this.controls.addEventListener("change", renderAll);
+    this.controls.addEventListener("end", () => saveCam());
   }
   setContent(objs) {
     for (const c of this.content.children) c.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
@@ -179,7 +180,9 @@ function renderAll() {
     views.out.render();
   });
 }
-new ResizeObserver(renderAll).observe(document.body);
+const resized = new ResizeObserver(renderAll);
+resized.observe(document.body);
+for (const v of Object.values(views)) resized.observe(v.canvas);
 
 function parseColor(hex) {
   const c = (hex || "#808080").replace("#", "");
@@ -238,6 +241,25 @@ function partMesh(geometry, hex, vertexColors = false) {
 
 let bounds = new THREE.Box3();
 
+// View state kept in the link (see toHash): camera when moved away from the
+// default view, as "px,py,pz,tx,ty,tz"; the cut heights and highlight mode.
+let camSaved = null;
+let pendingCam = null, wantCut = null; // from the link, applied once the model is shown
+function saveCam(on = true) {
+  camSaved = on ? [...camera.position.toArray(), ...target.toArray()].map((x) => +x.toFixed(2)).join(",") : null;
+  syncHash();
+}
+function applyCam(str) {
+  const v = str.split(",").map(Number);
+  if (v.length !== 6 || v.some(Number.isNaN)) return;
+  camera.position.set(v[0], v[1], v[2]);
+  target.set(v[3], v[4], v[5]);
+  views.src.controls.update();
+  views.out.controls.update();
+  camSaved = str;
+  renderAll();
+}
+
 function frameView(name = "iso") {
   if (bounds.isEmpty()) return;
   const c = bounds.getCenter(new THREE.Vector3());
@@ -252,7 +274,10 @@ function frameView(name = "iso") {
   views.out.controls.update();
   renderAll();
 }
-document.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => frameView(b.dataset.view)));
+document.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => {
+  frameView(b.dataset.view);
+  saveCam(b.dataset.view !== "iso"); // iso is the default: nothing to store
+}));
 
 // ------------------------------------------------------------------ slicing
 
@@ -270,6 +295,13 @@ function setSliceRange(box, reset = false) {
     const conv = (f) => Math.min(1, Math.max(0, (old.min.z + f * (old.max.z - old.min.z) - sliceBox.min.z) / h));
     if (cutBot()) cut.lo = conv(cut.lo);
     if (cutTop()) cut.hi = conv(cut.hi);
+  }
+  if (wantCut) {
+    const h = sliceBox.max.z - sliceBox.min.z || 1;
+    const frac = (z) => (z - sliceBox.min.z) / h;
+    if (wantCut[0] != null) cut.lo = Math.min(1 - GAP, Math.max(0, frac(wantCut[0])));
+    if (wantCut[1] != null) cut.hi = Math.min(1, Math.max(cut.lo + GAP, frac(wantCut[1])));
+    wantCut = null;
   }
   updateSlice();
 }
@@ -369,14 +401,19 @@ function setCut(k, f) {
   f = Math.min(1, Math.max(0, f));
   cut[k] = k === "hi" ? Math.max(f, cut.lo + GAP) : Math.min(f, cut.hi - GAP);
   updateSlice();
+  syncHash();
 }
 
 const sliders = [...document.querySelectorAll(".view")].map((v) => new CutSlider(v));
-$("hl").onchange = updateSlice;
+$("hl").onchange = () => {
+  updateSlice();
+  syncHash();
+};
 $("cutReset").onclick = () => {
   cut.lo = 0;
   cut.hi = 1;
   updateSlice();
+  syncHash();
 };
 
 // ------------------------------------------------------------------ source
@@ -518,7 +555,10 @@ function showSource(proj) {
   $("run").disabled = false;
   estimate();
   setSliceRange(box, true);
+  const cam = pendingCam;
+  pendingCam = camSaved = null;
   frameView("iso");
+  if (cam) applyCam(cam);
 }
 
 async function setSource(bytes, name, url = null) {
@@ -593,7 +633,11 @@ function toHash() {
   if ($("coreOn").checked && $("primerOn").checked) p.set("primer", $("primerF").value);
   if ($("shellOn").checked) p.set("shell", $("shellF").value);
   if ($("shellOn").checked && $("kb").checked) p.set("kb", "1");
-  return p.toString().replace(/%2F/g, "/").replace(/%3A/g, ":");
+  // View: camera, cut heights in mm ("bottom,top", empty = no cut), highlight.
+  if (camSaved) p.set("cam", camSaved);
+  if (!sliceBox.isEmpty() && (cutTop() || cutBot())) p.set("cut", `${cutBot() ? zAt(cut.lo).toFixed(2) : ""},${cutTop() ? zAt(cut.hi).toFixed(2) : ""}`);
+  if ($("hl").value !== "outline") p.set("hl", $("hl").value);
+  return p.toString().replace(/%2F/g, "/").replace(/%3A/g, ":").replace(/%2C/g, ",");
 }
 
 function fromHash() {
@@ -607,6 +651,12 @@ function fromHash() {
   pick("primerOn", "primerF", "primer");
   pick("shellOn", "shellF", "shell");
   $("kb").checked = p.get("kb") === "1";
+  pendingCam = p.get("cam");
+  if (p.has("cut")) {
+    const [lo, hi] = p.get("cut").split(",").map((x) => (x === "" || x == null || Number.isNaN(+x) ? null : +x));
+    wantCut = [lo ?? null, hi ?? null];
+  }
+  if (["outline", "dim", "off"].includes(p.get("hl"))) $("hl").value = p.get("hl");
   return p;
 }
 
