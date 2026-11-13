@@ -23,8 +23,11 @@ goes, and it often gets it wrong:
 
   <a href="img/Shallow%20plastic%20-%20model.png"><img src="img/Shallow%20plastic%20-%20model.png" width="160" alt="Painted model with a light green swirl on black"></a>
   <a href="img/Shallow%20plastic%20-%20print.png"><img src="img/Shallow%20plastic%20-%20print.png" width="160" alt="Sliced preview: the swirl is one thin layer"></a>
+  <a href="img/photos/swirl-original.jpg"><img src="img/photos/swirl-original.jpg" width="160" alt="Photo of the print: the green swirl is thin and translucent, the black shows through"></a>
+  <a href="img/photos/swirl-filadeep.jpg"><img src="img/photos/swirl-filadeep.jpg" width="160" alt="Photo of the print made with FilaDeep: the green swirl is solid"></a>
 
-  Painted model (left) and its sliced preview (right).
+  Painted model, its sliced preview, the print, and the same print made with
+  FilaDeep.
 
 Two more things are hard to do with paint alone: printing the inside in a
 different material from the colored outside, and adding a layer of another
