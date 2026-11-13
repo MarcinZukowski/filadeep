@@ -127,6 +127,18 @@ class View {
         m.userData.dim = dim;
       }
     }
+    // Wireframe: triangle edges over each part, created on first use.
+    const wire = $("wire").checked;
+    for (const group of this.content.children) {
+      if (wire && !group.userData.wire) {
+        const front = group.children[0];
+        const w = new THREE.Mesh(front.geometry, new THREE.MeshBasicMaterial({ wireframe: true, color: 0x8a8f98, transparent: true, opacity: 0.4, depthWrite: false, clippingPlanes: BOTH }));
+        w.renderOrder = front.renderOrder + 0.5;
+        group.userData.wire = w;
+        group.add(w);
+      }
+      if (group.userData.wire) group.userData.wire.visible = wire;
+    }
     const c = sliceBox.getCenter(new THREE.Vector3()), size = sliceBox.getSize(new THREE.Vector3());
     this.content.traverse((o) => {
       const side = o.userData.cut;
@@ -206,6 +218,7 @@ function partMesh(geometry, hex, vertexColors = false) {
   const front = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     vertexColors, color: vertexColors ? 0xffffff : color, roughness: 0.75, metalness: 0, flatShading: true,
     transparent: alpha < 1, opacity: alpha, depthWrite: alpha >= 1, clippingPlanes: BOTH,
+    polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, // keeps the wireframe lines in front
   }));
   front.renderOrder = alpha < 1 ? 1e6 : 0;
   group.add(front);
@@ -661,6 +674,7 @@ function toHash() {
   if (!sliceBox.isEmpty() && (cutTop() || cutBot())) p.set("cut", `${cutBot() ? zAt(cut.lo).toFixed(2) : ""},${cutTop() ? zAt(cut.hi).toFixed(2) : ""}`);
   if ($("hl").value !== "outline") p.set("hl", $("hl").value);
   if ($("bg").value !== $("bg").defaultValue) p.set("bg", $("bg").value.slice(1));
+  if ($("wire").checked) p.set("wire", "1");
   return p.toString().replace(/%2F/g, "/").replace(/%3A/g, ":").replace(/%2C/g, ",");
 }
 
@@ -669,6 +683,10 @@ function setBackground() {
   renderAll();
 }
 $("bg").oninput = setBackground;
+$("wire").onchange = () => {
+  renderAll();
+  syncHash();
+};
 $("bg").onchange = () => syncHash();
 
 /** The link's parameters; when one is repeated, the last one wins (handy for appending overrides). */
@@ -698,6 +716,7 @@ function fromHash() {
   }
   if (["outline", "dim", "off"].includes(p.get("hl"))) $("hl").value = p.get("hl");
   if (/^#?[0-9a-f]{6}$/i.test(p.get("bg") ?? "")) $("bg").value = "#" + p.get("bg").replace("#", "").toLowerCase();
+  $("wire").checked = p.get("wire") === "1";
   setBackground();
   return p;
 }

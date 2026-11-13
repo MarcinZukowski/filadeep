@@ -28,7 +28,9 @@
         <button id="openUrl" data-tip="Load a .3mf from a web address. The server must allow cross-site downloads (CORS): raw GitHub links work, most model sites don't, so download those and use Open file. A model loaded this way is included in Copy link.">Open URL…</button>
         <span class="hint demos">Demos:
           <a href="#src=models/testshapes.3mf" data-tip="Cube, pyramid and sphere with thin and thick painted details.">testshapes</a> ·
-          <a href="#src=models/penguin.3mf&core=3&primer=4" data-tip="A penguin: black pupils on white, thin yellow eyebrows on black, a white belly. Loads with a black core and white primer selected.">penguin</a></span>
+          <a href="#src=models/penguin.3mf&core=3&primer=4" data-tip="A penguin: black pupils on white, thin yellow eyebrows on black, a white belly. Loads with a black core and white primer selected.">penguin</a> ·
+          <a href="#src=models/frog.3mf&core=3&primer=4" data-tip="A green frog with a light-blue belly, white eyes with black pupils, a thin black mouth and spots. Bright colors over a black core, so the white primer matters.">frog</a> ·
+          <a href="#src=models/duck.3mf&core=3&primer=4" data-tip="A yellow rubber duck with an orange beak and black eyes. Yellow shows whatever is behind it, so this is the clearest primer example.">duck</a></span>
       </div>
       <div id="srcInfo" class="info" data-tip="Objects, triangle count, how many triangles carry paint, the slicer that saved the file, and its number of filament slots."></div>
       <div id="srcLegend" class="legend"></div>
@@ -109,6 +111,7 @@
   <span id="sliceZ" class="mono" data-tip="Visible height range (above the build plate). Use the sliders on the right edge of the views.">–</span>
   <button id="cutReset" class="small" hidden data-tip="Remove both cuts: show the whole model again.">reset</button>
   <span class="grow"></span>
+  <label data-tip="Draw the edges of all triangles on top of the models, e.g. to see how the paint follows the mesh. Stored in the link as wire=1."><input id="wire" type="checkbox"> wireframe</label>
   <label data-tip="Background color of both views, e.g. a lighter one to see a black model. Stored in the link as bg.">background <input id="bg" type="color" value="#16181c"></label>
   <button data-view="iso" data-tip="Reset to the 3/4 view, fitted to the model.">iso</button><button data-view="front" data-tip="Look from the front.">front</button><button data-view="back" data-tip="Look from the back.">back</button>
   <button data-view="left" data-tip="Look from the left.">left</button><button data-view="right" data-tip="Look from the right.">right</button><button data-view="top" data-tip="Look from the top.">top</button>

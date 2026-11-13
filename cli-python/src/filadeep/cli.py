@@ -198,9 +198,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("-o", "--out", help="output 3MF (default: <file>-shell.3mf)")
     p.set_defaults(func=cmd_shell)
 
-    p = sub.add_parser("testmodel", help="write a painted example: a test plate (cube, pyramid, sphere) or a penguin")
-    p.add_argument("--model", choices=["shapes", "penguin"], default="shapes")
-    p.add_argument("-o", "--out", help="output 3MF (default: testshapes.3mf / penguin.3mf)")
+    p = sub.add_parser("testmodel", help="write a painted example: a test plate (cube, pyramid, sphere) or a figure (penguin, frog, duck)")
+    p.add_argument("--model", choices=["shapes", "penguin", "frog", "duck"], default="shapes")
+    p.add_argument("-o", "--out", help="output 3MF (default: testshapes.3mf or <model>.3mf)")
     p.add_argument("--template", help="copy slicer settings from this Bambu 3MF (needs the same 5 filament slots)")
     p.add_argument("--scale", type=float, default=1.0)
     p.set_defaults(func=cmd_testmodel)

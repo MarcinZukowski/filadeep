@@ -57,6 +57,107 @@ def subdivide(v: np.ndarray, f: np.ndarray, max_edge: float, project=None):
         v = np.concatenate([v, mids])
 
 
+def _edges(f: np.ndarray):
+    """Unique undirected edges, each face's edge ids (01, 12, 20) and, per edge, the face and corner it was first seen at."""
+    e = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
+    uniq, first, inv = unique_rows(e, return_index=True, return_inverse=True)
+    return uniq, inv.reshape(3, -1).T, first % len(f), first // len(f)
+
+
+def _split_faces(f: np.ndarray, m: np.ndarray) -> np.ndarray:
+    """Split faces at new edge vertices: m[face] = new vertex id on edge 01, 12, 20, or -1."""
+    n = (m >= 0).sum(1)
+    out = [f[n == 0]]
+    for k in range(3):
+        p, q, r = f[:, k], f[:, (k + 1) % 3], f[:, (k + 2) % 3]
+        mpq, mqr, mrp = m[:, k], m[:, (k + 1) % 3], m[:, (k + 2) % 3]
+        one = (n == 1) & (mpq >= 0)  # only edge pq is cut
+        out += [np.stack(x, 1)[one] for x in ((p, mpq, r), (mpq, q, r))]
+        two = (n == 2) & (mqr < 0)  # pq and rp are cut: p is alone on its side
+        out += [np.stack(x, 1)[two] for x in ((p, mpq, mrp), (mpq, q, r), (mpq, r, mrp))]
+    sel = n == 3
+    p, q, r = f[sel].T
+    m01, m12, m20 = m[sel].T
+    out += [np.stack(x, 1) for x in ((p, m01, m20), (m01, q, m12), (m20, m12, r), (m01, m12, m20))]
+    return np.concatenate(out)
+
+
+def _normals(v: np.ndarray, f: np.ndarray) -> np.ndarray:
+    t = v[f]
+    n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-30)
+
+
+def refine_near_paint(v: np.ndarray, f: np.ndarray, painter, h: float, sample: float = 0.35):
+    """Subdivide only the triangles that a paint boundary runs through, until
+    their edges are shorter than h. Flat single-colour areas keep big triangles.
+
+    painter(points, normals) -> filament per point. A triangle is tested on a
+    grid of points about `sample` mm apart, so paint thinner than that can be missed.
+    """
+    for _ in range(16):
+        t = v[f]
+        elen = np.linalg.norm(t[:, [1, 2, 0]] - t, axis=2)  # edges 01, 12, 20
+        cand = np.flatnonzero(elen.max(1) > h)
+        if not len(cand):
+            break
+        longest = elen[cand].max(1)
+        nrm = _normals(v, f)
+        mixed = np.zeros(len(f), bool)
+        # Sample each triangle on a grid about `sample` apart; big and small triangles separately.
+        for lo_, hi_ in ((0, 4), (4, 16), (16, np.inf)):
+            grp = cand[(longest > lo_) & (longest <= hi_)]
+            if not len(grp):
+                continue
+            k = int(min(160, max(2, np.ceil(elen[grp].max() / sample))))
+            w = np.array([[i, j, k - i - j] for i in range(k + 1) for j in range(k + 1 - i)], float) / k
+            pts = np.einsum("pk,fkd->fpd", w, t[grp])
+            lab = painter(pts.reshape(-1, 3), np.repeat(nrm[grp], len(w), axis=0)).reshape(len(grp), len(w))
+            mixed[grp] = (lab != lab[:, :1]).any(1)
+        uniq, eid, _, _ = _edges(f)
+        cut = np.zeros(len(uniq), bool)
+        cut[eid[mixed[:, None] & (elen > h)]] = True
+        if not cut.any():
+            break
+        new_id = np.full(len(uniq), -1)
+        new_id[cut] = len(v) + np.arange(cut.sum())
+        v = np.concatenate([v, (v[uniq[cut, 0]] + v[uniq[cut, 1]]) / 2])
+        f = _split_faces(f, new_id[eid])
+    return v, f
+
+
+def split_at_paint_edges(v: np.ndarray, f: np.ndarray, painter, steps: int = 14):
+    """Cut triangles along the paint boundaries, so painted outlines are smooth
+    curves instead of following the mesh's triangles.
+
+    painter(points, normals) -> filament per point. A mesh edge whose two ends
+    have different labels gets a new vertex where the label changes (found by
+    bisection), and the triangles on it are split there. Where the two faces
+    of an edge disagree (the paint depends on the face, e.g. at a cube's
+    edge), the edge is left alone. The surface keeps its shape and stays
+    watertight; paint thinner than a triangle is not recovered.
+    """
+    n = _normals(v, f)
+    lc = painter(v[f].reshape(-1, 3), np.repeat(n, 3, axis=0)).reshape(-1, 3)  # label of each face corner
+    want = lc != lc[:, [1, 2, 0]]  # per face: edges 01, 12, 20 change label
+    uniq, eid, rep_face, _ = _edges(f)
+    cut = np.bincount(eid.ravel(), weights=want.ravel(), minlength=len(uniq)) == np.bincount(eid.ravel(), minlength=len(uniq))
+    ce = np.flatnonzero(cut)
+    if not len(ce):
+        return v, f
+    a, b, nr = v[uniq[ce, 0]], v[uniq[ce, 1]], n[rep_face[ce]]
+    la = painter(a, nr)
+    lo, hi = np.zeros(len(ce)), np.ones(len(ce))
+    for _ in range(steps):
+        mid = (lo + hi) / 2
+        same = painter(a + (b - a) * mid[:, None], nr) == la
+        lo, hi = np.where(same, mid, lo), np.where(same, hi, mid)
+    t = np.clip((lo + hi) / 2, 0.08, 0.92)[:, None]  # no sliver triangles
+    new_id = np.full(len(uniq), -1)
+    new_id[ce] = len(v) + np.arange(len(ce))
+    return np.concatenate([v, a + (b - a) * t]), _split_faces(f, new_id[eid])
+
+
 def cube_mesh(size: float):
     v = np.array([[x, y, z] for x in (0, size) for y in (0, size) for z in (0, size)], float) - [size / 2, size / 2, 0]
     f = np.array([[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1],
@@ -137,11 +238,14 @@ def paint_sphere(c: np.ndarray, r: float) -> np.ndarray:
 def _shapes(scale: float = 1.0, max_edge: float = 0.8):
     s = 30.0 * scale
     shapes = []
-    v, f = subdivide(*cube_mesh(s), max_edge)
-    shapes.append(("cube", v, f, BLUE, lambda c, n: paint_cube(c, n, s)))
+    # Flat shapes: as few triangles as possible, refined only where a paint boundary runs (max_edge / 2 there).
+    painter = lambda c, n: paint_cube(c, n, s)  # noqa: E731
+    v, f = refine_near_paint(*cube_mesh(s), painter, max_edge / 2)
+    shapes.append(("cube", v, f, BLUE, painter))
     hgt = 25.0 * scale
-    v, f = subdivide(*pyramid_mesh(s, hgt), max_edge)
-    shapes.append(("pyramid", v, f, BLACK, lambda c, n: paint_pyramid(c, n, hgt)))
+    painter = lambda c, n: paint_pyramid(c, n, hgt)  # noqa: E731
+    v, f = refine_near_paint(*pyramid_mesh(s, hgt), painter, max_edge / 2)
+    shapes.append(("pyramid", v, f, BLACK, painter))
     r = 15.0 * scale
     v, f = sphere_mesh(r)
     v, f = subdivide(v, f, max_edge, project=lambda p: p / np.linalg.norm(p, axis=1, keepdims=True) * r)
@@ -172,13 +276,17 @@ def _template_bits(template) -> tuple[str, str, str]:
 
 
 def write(path: str | Path, template: str | Path | None = None, scale: float = 1.0, max_edge: float = 0.8, model: str = "shapes") -> Path:
-    """model: "shapes" (cube, pyramid, sphere) or "penguin" (see penguin.py)."""
+    """model: "shapes" (cube, pyramid, sphere), "penguin" (penguin.py), "frog" or "duck" (figures.py)."""
     path = Path(path)
     recolor: dict[int, str] = {}  # slot -> colour, replacing the palette's / template's
     if model == "penguin":
         from . import penguin
 
         shapes, recolor = penguin.shapes(scale), penguin.RECOLOR
+    elif model in ("frog", "duck"):
+        from . import figures
+
+        shapes, recolor = figures.shapes(model, scale)
     else:
         shapes = _shapes(scale, max_edge)
     colors = [recolor.get(i + 1, c) for i, c in enumerate(COLORS)]
@@ -189,6 +297,7 @@ def write(path: str | Path, template: str | Path | None = None, scale: float = 1
     ns = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"'
     root_objs, items, settings, rels, files = [], [], [], [], {}
     for i, (name, v, f, default, painter) in enumerate(shapes):
+        v, f = split_at_paint_edges(v, f, painter)  # smooth painted outlines
         mesh_id, obj_id = 2 * i + 1, 2 * i + 2
         t = v[f]
         n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])

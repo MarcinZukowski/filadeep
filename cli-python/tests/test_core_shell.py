@@ -85,3 +85,42 @@ def test_penguin_example_is_solid_and_painted():
     assert abs(v[:, 2].min()) < 1e-9  # flat base on the bed
     lab = penguin.paint(v[f].mean(1))
     assert set(lab.tolist()) == {penguin.ORANGE, penguin.YELLOW, penguin.BLACK, penguin.WHITE}
+
+
+def test_frog_and_duck_examples_are_solid_and_painted():
+    from filadeep import figures
+    from filadeep.depth import to_manifold
+
+    for mesh, paint in ((figures.frog_mesh, figures.frog_paint), (figures.duck_mesh, figures.duck_paint)):
+        v, f = mesh(voxel=1.0)
+        m = to_manifold(v, f)
+        assert m.status().name == "NoError" and m.genus() == 0
+        assert abs(v[:, 2].min()) < 1e-9
+        assert set(paint(v[f].mean(1)).tolist()) == {1, 2, 3, 4}
+
+
+def test_split_at_paint_edges_keeps_the_solid_and_smooths_outlines():
+    from filadeep import figures, testmodel
+    from filadeep.depth import to_manifold
+
+    v, f = figures.duck_mesh(voxel=1.0)
+    vol = to_manifold(v, f).volume()
+    v2, f2 = testmodel.split_at_paint_edges(v, f, lambda c, n: figures.duck_paint(c))
+    m = to_manifold(v2, f2)
+    assert m.status().name == "NoError" and abs(m.volume() - vol) < 1e-3 * vol
+    # No triangle spans a boundary any more: its corners carry at most the labels of its centroid and one neighbour.
+    lab = figures.duck_paint(v2[f2].mean(1))
+    assert len(f2) > len(f) and set(lab.tolist()) == {1, 2, 3, 4}
+
+
+def test_testshapes_are_solid_with_few_triangles_on_flat_faces(tmp_path):
+    from filadeep.depth import to_manifold
+
+    shapes = {name: (v, f, painter) for name, v, f, _, painter in testmodel._shapes()}
+    for name in ("cube", "pyramid"):
+        v, f, painter = shapes[name]
+        v, f = testmodel.split_at_paint_edges(v, f, painter)
+        m = to_manifold(v, f)
+        assert m.status().name == "NoError" and m.genus() == 0
+        assert len(f) < 30000
+    assert abs(to_manifold(*shapes["cube"][:2]).volume() - 27000) < 1
