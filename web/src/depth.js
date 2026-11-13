@@ -277,6 +277,9 @@ export function isoManifold(wasm, evalBlock, lo, voxel, shape, blocks, block, to
 
 // ------------------------------------------------------------------- driver
 
+const ZFLAT = 8;
+const CAP = 0.7; // |normal z| above which a face is a cap (within about 45 degrees of level)
+
 /**
  * Split a solid into per-filament volumes. verts/faces: world mm. subTris/subFil:
  * painted surface (Float64Array N*9) and filament per sub-triangle.
@@ -291,13 +294,36 @@ export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
   spPrep.at(0, "sampling the painted surface");
   const body = toManifold(wasm, verts, faces);
   log(`body: ${body.numTri()} tris, volume ${body.volume().toFixed(0)} mm³`);
-  const samples = sampleSurface(subTris, subFil, voxel * 0.4);
+  // Sampled per filament and kind of surface: walls (0) and caps (1: faces that
+  // point mostly up or down), which are compared differently (see makeShell).
+  const kinds = Int32Array.from(subFil, (f, t) => {
+    const o = 9 * t, e = (a, b) => subTris[o + a] - subTris[o + b];
+    const nx = e(4, 1) * e(8, 2) - e(5, 2) * e(7, 1), ny = e(5, 2) * e(6, 0) - e(3, 0) * e(8, 2), nz = e(3, 0) * e(7, 1) - e(4, 1) * e(6, 0);
+    return 2 * f + (Math.abs(nz) > CAP * Math.hypot(nx, ny, nz) ? 1 : 0);
+  });
+  const byKind = sampleSurface(subTris, kinds, voxel * 0.4);
+  const samples = new Map();
+  for (const f of new Set(subFil)) {
+    const a = byKind.get(2 * f) ?? new Float64Array(0), b = byKind.get(2 * f + 1) ?? new Float64Array(0);
+    const all = new Float64Array(a.length + b.length);
+    all.set(a);
+    all.set(b, a.length);
+    samples.set(f, all);
+  }
   let ns = 0;
   for (const s of samples.values()) ns += s.length / 3;
   log(`surface samples: ${ns}`);
   spPrep.at(0.4, "building search trees");
   const trees = new Map();
-  for (const [l, s] of samples) trees.set(l, new KDTree(s));
+  // For deciding between colors (see makeShell): wall points with z stretched, cap points as they are.
+  const treesFlat = new Map();
+  for (const [l, s] of samples) {
+    trees.set(l, new KDTree(s));
+    const w = byKind.get(2 * l), c = byKind.get(2 * l + 1);
+    if (w) for (let i = 2; i < w.length; i += 3) w[i] *= ZFLAT;
+    const wall = w?.length ? new KDTree(w) : null, cap = c?.length ? new KDTree(c) : null;
+    treesFlat.set(l, (x, y, z, ub) => Math.min(wall ? wall.query(x, y, z * ZFLAT, ub) : Infinity, cap ? cap.query(x, y, z, ub) : Infinity));
+  }
   log(`trees built for ${trees.size} filaments`);
 
   const loAll = [Infinity, Infinity, Infinity], hiAll = [-Infinity, -Infinity, -Infinity];
@@ -318,7 +344,13 @@ export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
     spMask.at(0, `${what}: narrow band`);
     const earlier = new Set(order.slice(0, k)), later = new Set(order.slice(k + 1));
     const treeF = trees.get(f);
-    const others = [...trees].filter(([l]) => l !== f).map(([l, t]) => [t, earlier.has(l) ? overlap * voxel : later.has(l) ? 0 : restOff]);
+    // Which color a point belongs to is decided by the nearest surface, but for
+    // walls heights count ZFLAT times: a wall's color then reaches mostly level
+    // into the model. So under a sloping wall the border between two colors runs
+    // level from the paint edge, and a color stays out of layers where it doesn't
+    // show. Caps (tops and bottoms) are measured plainly: their color goes straight down or up.
+    const treeS = treesFlat.get(f);
+    const others = [...treesFlat].filter(([l]) => l !== f).map(([l, t]) => [t, earlier.has(l) ? overlap * voxel : later.has(l) ? 0 : restOff]);
     const reach = d + 2 * voxel, margin = d + 3 * voxel;
     const lo = loAll.map((v) => v - margin);
     const shape = loAll.map((v, i) => Math.ceil((hiAll[i] + margin - lo[i]) / voxel) + 1);
@@ -361,10 +393,11 @@ export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
             // Inside shell f: within depth d of f's surface and nearer to it than
             // to other surfaces (reaching `overlap` further toward earlier colors).
             let gn = d - df;
+            const dfs = Math.min(treeS(px, py, pz, ZFLAT * reach), ZFLAT * reach);
             for (const [t, off] of others) {
-              const ub = reach + Math.max(off, 0);
-              const dd = Math.min(t.query(px, py, pz, ub), ub);
-              gn = Math.min(gn, dd + off - df);
+              const ub = ZFLAT * reach + Math.max(off, 0);
+              const dd = Math.min(t(px, py, pz, ub), ub);
+              gn = Math.min(gn, dd + off - dfs);
             }
             out[k] = Math.max(gn, -voxel);
           }
