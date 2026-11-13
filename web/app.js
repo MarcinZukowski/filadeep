@@ -656,6 +656,8 @@ function readOpts() {
 
 const FIELDS = { dmin: "dmin", dmax: "dmax", depths: "depths", voxel: "voxel", obj: "obj", skin: "skin", pt: "pt", st: "st", idepth: "idepth", iclear: "iclear" };
 
+let autoRun = false; // run=1 in the link
+
 function toHash() {
   const p = new URLSearchParams();
   if (source?.url) p.set("src", source.url);
@@ -676,6 +678,7 @@ function toHash() {
   if ($("bg").value !== $("bg").defaultValue) p.set("bg", $("bg").value.slice(1));
   if ($("fewer").checked) p.set("fewer", "1");
   if ($("wire").checked) p.set("wire", "1");
+  if (autoRun) p.set("run", "1"); // kept as given, so a reload or an edited address runs again
   return p.toString().replace(/%2F/g, "/").replace(/%3A/g, ":").replace(/%2C/g, ",");
 }
 
@@ -701,7 +704,9 @@ function fromHash() {
   for (const [k, id] of Object.entries(FIELDS)) if (p.has(k)) $(id).value = p.get(k);
   const pick = (on, sel, key) => {
     $(on).checked = p.has(key);
-    if (p.has(key)) $(sel).dataset.want = p.get(key);
+    if (!p.has(key)) return;
+    $(sel).dataset.want = p.get(key);
+    if ([...$(sel).options].some((o) => o.value === p.get(key))) $(sel).value = p.get(key); // model already loaded
   };
   pick("coreOn", "coreF", "core");
   pick("primerOn", "primerF", "primer");
@@ -719,6 +724,7 @@ function fromHash() {
   if (["outline", "dim", "off"].includes(p.get("hl"))) $("hl").value = p.get("hl");
   if (/^#?[0-9a-f]{6}$/i.test(p.get("bg") ?? "")) $("bg").value = "#" + p.get("bg").replace("#", "").toLowerCase();
   $("wire").checked = p.get("wire") === "1";
+  autoRun = p.get("run") === "1";
   setBackground();
   return p;
 }
@@ -857,7 +863,7 @@ function runJob() {
       showOutput(data.parts, source.proj);
       const outBox = new THREE.Box3();
       for (const group of views.out.content.children) outBox.union(group.children[0].geometry.boundingBox);
-      $("status").textContent = `done in ${data.seconds.toFixed(1)} s · ${(data.bytes.length / 1e6).toFixed(1)} MB · output ${dims(outBox)}`;
+      $("status").textContent = `done in ${data.seconds.toFixed(1)} s · ${(data.bytes.length / 1e6).toFixed(1)} MB · output ${dims(outBox)}, ${data.parts.reduce((n, q) => n + q.faces.length / 3, 0).toLocaleString("en-US")} triangles`;
     } else if (data.type === "error") {
       done();
       $("status").textContent = "failed (see log)";
@@ -964,8 +970,19 @@ async function start() {
   if (p.get("run") === "1" && source) runJob();
   renderAll();
 }
+// The address was edited by hand (our own updates don't fire this): apply it.
 window.addEventListener("hashchange", () => {
-  const src = hashParams().get("src");
-  if (src && src !== source?.url) start();
+  const p = hashParams(), src = p.get("src");
+  if (src && src !== source?.url) return start();
+  fromHash();
+  if (!source) return;
+  setSliceRange(sliceBox, !wantCut); // no cut in the link: show the whole model
+  const cam = pendingCam;
+  pendingCam = camSaved = null;
+  if (cam) applyCam(cam);
+  else frameView("iso");
+  estimate();
+  renderAll();
+  if (p.get("run") === "1") runJob();
 });
 start();
