@@ -16,6 +16,7 @@
   <span class="sub" data-tip="Takes a color-painted Bambu Studio / OrcaSlicer project and turns the paint into real solid parts, so each color has a controlled thickness. Optionally adds a core, a primer layer and an outer shell.">painted 3MF → solid color layers, core, primer, shell</span>
   <span class="grow"></span>
   <a class="hint" href="https://github.com/MarcinZukowski/filadeep" target="_blank" rel="noopener" data-tip="Source code, documentation and issue tracker on GitHub (opens in a new tab).">GitHub</a>
+  <button id="qrBtn" class="icon" aria-label="QR code" data-tip="Show a QR code for this page with the current model URL and options, e.g. to open it on a phone."><svg viewBox="0 0 14 14" width="14" height="14" fill="currentColor"><path d="M0 0h6v6H0zM1.5 1.5v3h3v-3zM8 0h6v6H8zM9.500 1.5v3h3v-3zM0 8h6v6H0zM1.5 9.500v3h3v-3z" fill-rule="evenodd"/><path d="M8 8h2v2H8zM12 8h2v2h-2zM10 10h2v2h-2zM8 12h2v2H8zM12 12h2v2h-2z"/></svg></button>
   <button id="copyLink" data-tip="Copy a link that reopens this page with the same model URL and all options. A model opened from a local file can't be included, only the options.">Copy link</button>
 </header>
 
@@ -117,6 +118,7 @@
   <button data-view="left" data-tip="Look from the left.">left</button><button data-view="right" data-tip="Look from the right.">right</button><button data-view="top" data-tip="Look from the top.">top</button>
 </footer>
 
+<div id="qr" class="qr" hidden><div id="qrImg"></div><div id="qrNote" class="hint"></div></div>
 <div id="tip" role="tooltip" hidden></div>
 <script type="module" src="app.js"></script>
 </body>

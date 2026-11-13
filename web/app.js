@@ -743,6 +743,33 @@ $("copyLink").onclick = async () => {
     : "link copied";
 };
 
+// QR code of the current link (the library is loaded on first use).
+async function showQr() {
+  syncHash();
+  const { default: qrcode } = await import("./node_modules/qrcode-generator/dist/qrcode.mjs");
+  const qr = qrcode(0, "L");
+  qr.addData(location.href);
+  qr.make();
+  const n = qr.getModuleCount(), m = 3; // m: quiet margin in modules
+  let d = "";
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c + m} ${r + m}h1v1h-1z`;
+  $("qrImg").innerHTML = `<svg viewBox="0 0 ${n + 2 * m} ${n + 2 * m}" shape-rendering="crispEdges"><path d="${d}" fill="#000"/></svg>`;
+  $("qrNote").textContent = ["localhost", "127.0.0.1"].includes(location.hostname) ? "This is a local address: it only opens on this computer."
+    : source && !source.url ? "The model was opened from a file, so the link carries only the options." : "";
+  $("qr").hidden = false;
+}
+$("qrBtn").onclick = (e) => {
+  e.stopPropagation();
+  if ($("qr").hidden) showQr().catch((err) => ($("status").textContent = `could not make the QR code: ${err.message}`));
+  else $("qr").hidden = true;
+};
+document.addEventListener("click", (e) => {
+  if (!$("qr").contains(e.target)) $("qr").hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $("qr").hidden = true;
+});
+
 // ------------------------------------------------------------------ run
 
 let worker = null, result = null;

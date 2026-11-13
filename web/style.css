@@ -46,7 +46,21 @@ label.file input { display: none; }
 pre#log { overflow: auto; font-size: 11px; line-height: 1.4; max-height: calc(10 * 1.4em + 12px); margin: 0; padding: 6px 10px; color: #c6ccd4; white-space: pre; }
 .mono { font-family: ui-monospace, monospace; min-width: 70px; }
 .drop main { outline: 2px dashed var(--accent); outline-offset: -6px; }
-@media (max-width: 800px) { main { grid-template-columns: 1fr; grid-template-rows: auto 40vh auto 40vh; grid-auto-flow: row; } }
+/* Small screens: the page scrolls instead of squeezing the controls and the views. */
+@media (max-width: 800px), (max-height: 600px) {
+  html, body { height: auto; }
+  body { min-height: 100%; }
+  main { flex: none; grid-template-rows: auto 85vh; }
+  .controls { max-height: none; overflow: visible; }
+  header, footer { flex-wrap: wrap; }
+}
+/* Narrow screens: one column. */
+@media (max-width: 800px) {
+  main { grid-template-columns: 1fr; grid-template-rows: auto 60vh auto 60vh; grid-auto-flow: row; }
+  .controls { border-right: 0; }
+  .view { border-right: 0; border-bottom: 1px solid var(--line); }
+  header .sub { display: none; }
+}
 .progress { position: relative; height: 20px; border: 1px solid transparent; border-radius: 5px; overflow: hidden; margin: 4px 0 6px; }
 .progress.running { border-color: var(--line); background: #262a31; }
 .progress:not(.running) .fill, .progress:not(.running) .ptext, .progress.running .status { display: none; }
@@ -82,3 +96,10 @@ button[hidden] { display: none; }
 .controls[data-mode=layers] .m-inlays, .controls[data-mode=inlays] .m-layers { display: none; }
 input[type=color] { padding: 0 2px; width: 30px; height: 22px; vertical-align: middle; }
 footer label { display: flex; align-items: center; gap: 6px; }
+button.icon { padding: 4px 6px; display: flex; align-items: center; }
+/* QR code of the current link, under the header's right edge. */
+.qr { position: fixed; top: 44px; right: 12px; z-index: 9; width: min(280px, calc(100vw - 24px)); padding: 10px; background: #fff; color: #333; border-radius: 8px; box-shadow: 0 6px 20px #000a; }
+.qr[hidden] { display: none; }
+.qr svg { display: block; width: 100%; height: auto; }
+.qr .hint { color: #555; font-size: 11px; margin-top: 6px; text-align: center; }
+.qr .hint:empty { display: none; }

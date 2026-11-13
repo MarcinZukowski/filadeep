@@ -16,5 +16,7 @@ cp "$here"/node_modules/three/build/three.module.js "$here"/node_modules/three/L
 cp -R "$here"/node_modules/three/examples/jsm/controls "$here"/node_modules/three/examples/jsm/lines "$nm/three/examples/jsm/"
 cp "$here"/node_modules/manifold-3d/manifold.js "$here"/node_modules/manifold-3d/manifold.wasm "$here"/node_modules/manifold-3d/LICENSE "$nm/manifold-3d/"
 cp "$here"/node_modules/fflate/esm/browser.js "$here"/node_modules/fflate/LICENSE "$nm/fflate/esm/"
+mkdir -p "$nm/qrcode-generator/dist"
+cp "$here"/node_modules/qrcode-generator/dist/qrcode.mjs "$nm/qrcode-generator/dist/"
 touch "$out/.nojekyll"
 du -sh "$out" | sed 's/^/site: /'
