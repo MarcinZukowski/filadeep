@@ -82,6 +82,7 @@
           <legend data-tip="Settings you normally don't need to touch.">Advanced</legend>
           <label data-tip="Grid resolution for computing the hidden boundaries between colors. Smaller is more precise but slower and uses more memory (half the size is about 4-8x the work). The visible outer surface is always kept exactly.">voxel <input id="voxel" type="number" step="0.05" min="0.1" value="0.25"> mm</label>
           <div id="estimate" class="estimate" data-tip="Rough estimate of run time and peak memory for these options, from the painted surface area and the voxel size (calibrated on an Apple M4 Max; slower machines take 2-3x longer). Browsers allow a WebAssembly page about 4 GB."></div>
+          <label data-tip="Optimization: print the inside of each layer in a filament that layer uses anyway, the brightest one. Without a core, a bright inside keeps the colors over it bright at no extra cost, and layers that don't use the model's own filament need one filament change less. With a core, only layers where the core's filament isn't used are changed; a core that is on no surface at all (e.g. PLA-CF) is left alone. Takes longer without a core. Stored in the link as fewer=1."><input id="fewer" type="checkbox"> fewer filament changes</label>
           <label data-tip="Only process objects whose name contains this text. Empty: all painted objects (or all objects when nothing is painted).">objects <input id="obj" type="text" placeholder="name filter" size="10"></label>
         </fieldset>
       </div>

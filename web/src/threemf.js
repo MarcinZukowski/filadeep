@@ -179,15 +179,16 @@ export function load(bytes, name = "model.3mf") {
     });
   }
 
-  let colors = [], types = [];
+  let colors = [], types = [], layerHeight = null;
   if (files["Metadata/project_settings.config"]) {
     try {
       const ps = JSON.parse(text("Metadata/project_settings.config"));
       colors = ps.filament_colour || [];
       types = ps.filament_type || [];
+      layerHeight = +ps.layer_height || null;
     } catch {}
   }
-  return { name, files, rootPath, objects, filamentColors: colors, filamentTypes: types, application: app };
+  return { name, files, rootPath, objects, filamentColors: colors, filamentTypes: types, layerHeight, application: app };
 }
 
 export const partExtruder = (obj, part) => (part.extruder != null ? part.extruder : obj.extruder);

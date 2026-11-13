@@ -13,6 +13,7 @@ import { replaceParts } from "./write3mf.js";
  *   depths: {filament: mm} overrides, dmin, dmax, voxel, object,
  *   core: {filament, skin, primer: {filament, thickness}} | null,
  *   shell: {filament, thickness, keepBottom} | null,
+ *   fewer: true to fill the inside with a filament the layer uses anyway where its own is absent,
  *   inlay: {filaments: [n] | null (all painted), depth, clearance, leftover: "paint" | "body"} | null }  (ignored with a shell: it would cover them)
  * Returns { bytes (3MF), parts: [{name, extruder, vertices (world), faces}] }.
  */
@@ -30,6 +31,7 @@ export function run(wasm, proj, opts = {}) {
   }
   const repl = depthProcess(wasm, proj, {
     inlay,
+    fewer: !!opts.fewer,
     span: spDepth,
     depthOverrides,
     voxel,

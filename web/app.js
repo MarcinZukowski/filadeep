@@ -641,7 +641,7 @@ function readOpts() {
   const opts = {
     dmin: num("dmin"), dmax: num("dmax"), voxel: num("voxel"),
     depths: Object.fromEntries($("depths").value.split(",").map((s) => s.trim()).filter(Boolean).map((kv) => kv.split("=").map(Number))),
-    object: $("obj").value.trim() || null, core: null, shell: null, inlay: null,
+    object: $("obj").value.trim() || null, core: null, shell: null, inlay: null, fewer: $("fewer").checked,
   };
   if (mode === "inlays") {
     // Inlays replace the layer options (a core or shell would bring color changes back or cover the pieces).
@@ -674,6 +674,7 @@ function toHash() {
   if (!sliceBox.isEmpty() && (cutTop() || cutBot())) p.set("cut", `${cutBot() ? zAt(cut.lo).toFixed(2) : ""},${cutTop() ? zAt(cut.hi).toFixed(2) : ""}`);
   if ($("hl").value !== "outline") p.set("hl", $("hl").value);
   if ($("bg").value !== $("bg").defaultValue) p.set("bg", $("bg").value.slice(1));
+  if ($("fewer").checked) p.set("fewer", "1");
   if ($("wire").checked) p.set("wire", "1");
   return p.toString().replace(/%2F/g, "/").replace(/%3A/g, ":").replace(/%2C/g, ",");
 }
@@ -709,6 +710,7 @@ function fromHash() {
   if (p.has("inlay")) $("inlayF").value = p.get("inlay") === "all" ? "" : p.get("inlay");
   if (["paint", "body"].includes(p.get("ileft"))) $("ileft").value = p.get("ileft");
   $("kb").checked = p.get("kb") === "1";
+  $("fewer").checked = p.get("fewer") === "1";
   pendingCam = p.get("cam");
   if (p.has("cut")) {
     const [lo, hi] = p.get("cut").split(",").map((x) => (x === "" || x == null || Number.isNaN(+x) ? null : +x));

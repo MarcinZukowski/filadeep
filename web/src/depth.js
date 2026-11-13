@@ -279,6 +279,7 @@ export function isoManifold(wasm, evalBlock, lo, voxel, shape, blocks, block, to
 
 const ZFLAT = 8;
 const CAP = 0.7; // |normal z| above which a face is a cap (within about 45 degrees of level)
+const MIN_AREA = 0.5; // mm² of a filament's cross-section for it to count as used in a layer
 
 /**
  * Split a solid into per-filament volumes. verts/faces: world mm. subTris/subFil:
@@ -449,6 +450,137 @@ export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
   return res;
 }
 
+// ------------------------------------------------ fewer filament changes
+
+const layerOf = (z, h) => Math.max(0, Math.floor(z / h + 1e-6));
+
+/**
+ * Where each filament shows on a surface, per print layer (height h, from z = 0),
+ * over all objects: Map(filament -> Float64Array of painted area per layer).
+ * A triangle's area is spread over the layers it spans, so 0 means "not in this layer".
+ */
+function surfaceLayers(proj, h) {
+  const per = new Map();
+  for (const obj of proj.objects)
+    for (const part of obj.parts) {
+      if (part.subtype !== "normal_part") continue;
+      const { tris, states } = tessellate(part.mesh.vertices, part.mesh.faces, part.mesh.paint);
+      const w = applyTransform(tris, matmul(part.transform, obj.transform)), pe = partExtruder(obj, part);
+      for (let t = 0; t < states.length; t++) {
+        const o = t * 9, f = states[t] === 0 ? pe : states[t];
+        const ux = w[o + 3] - w[o], uy = w[o + 4] - w[o + 1], uz = w[o + 5] - w[o + 2], vx = w[o + 6] - w[o], vy = w[o + 7] - w[o + 1], vz = w[o + 8] - w[o + 2];
+        const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+        const a = layerOf(Math.min(w[o + 2], w[o + 5], w[o + 8]), h), b = Math.max(a, layerOf(Math.max(w[o + 2], w[o + 5], w[o + 8]) - 1e-4, h));
+        let arr = per.get(f);
+        if (!arr || arr.length <= b) per.set(f, (arr = Float64Array.from({ length: Math.max(b + 1, (arr?.length ?? 0) * 2) }, (_, i) => arr?.[i] ?? 0)));
+        for (let l = a; l <= b; l++) arr[l] += area / (b - a + 1) + 1e-12;
+      }
+    }
+  return per;
+}
+
+/**
+ * Cross-section area (mm²) of a closed mesh at the middle of each print layer:
+ * for every triangle the cut passes through, the shoelace term of its cut segment.
+ */
+function layerAreas(mesh, h, n) {
+  const out = new Float64Array(n), v = mesh.vertices, f = mesh.faces;
+  for (let i = 0; i < f.length; i += 3) {
+    const p = [f[i] * 3, f[i + 1] * 3, f[i + 2] * 3];
+    const zs = p.map((k) => v[k + 2]);
+    const a = Math.max(0, Math.ceil(Math.min(...zs) / h - 0.5)), b = Math.min(n - 1, Math.floor(Math.max(...zs) / h - 0.5));
+    for (let l = a; l <= b; l++) {
+      const z = (l + 0.5) * h;
+      let up = null, down = null; // where the triangle's outline crosses the cut, going up and going down
+      for (let e = 0; e < 3; e++) {
+        const k0 = p[e], k1 = p[(e + 1) % 3], z0 = v[k0 + 2], z1 = v[k1 + 2];
+        if (z0 < z === z1 < z) continue;
+        const t = (z - z0) / (z1 - z0), pt = [v[k0] + t * (v[k1] - v[k0]), v[k0 + 1] + t * (v[k1 + 1] - v[k0 + 1])];
+        if (z0 < z) up = pt;
+        else down = pt;
+      }
+      if (up && down) out[l] += 0.5 * (up[0] * down[1] - down[0] * up[1]);
+    }
+  }
+  return out.map(Math.abs);
+}
+
+/**
+ * Give each print layer's inside a filament that layer uses anyway: the
+ * brightest one (a bright inside keeps the colors over it bright), which costs
+ * no filament change, and saves one where the inside's own filament is not used.
+ *   fixed = false: the inside is free (every surface color, also coreF, has its
+ *     own skin in `plugs`), so the brightest filament of the layer always wins.
+ *   fixed = true: coreF was chosen as a core. It stays where the layer uses it
+ *     anyway and within `keep` mm above and below its own surfaces (tris/fil:
+ *     this part's painted surface), and everywhere if it is on no surface at all.
+ * layers: surfaceLayers(); plugs: Map(filament -> mesh) generated for this part;
+ * bright(filament): 0..1. Returns [[filament, mesh]], coreF's piece first.
+ */
+function splitInside(wasm, mesh, coreF, { fixed, tris, fil, keep, layers, plugs, h, bright }) {
+  let zmin = Infinity, zmax = -Infinity, xy = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < mesh.vertices.length; i += 3) {
+    const [x, y, z] = [mesh.vertices[i], mesh.vertices[i + 1], mesh.vertices[i + 2]];
+    if (z < zmin) zmin = z;
+    if (z > zmax) zmax = z;
+    xy = [Math.min(xy[0], x), Math.min(xy[1], y), Math.max(xy[2], x), Math.max(xy[3], y)];
+  }
+  const l0 = layerOf(zmin, h), l1 = layerOf(zmax - 1e-4, h);
+  if (fixed && !layers.has(coreF)) {
+    // A core chosen for its material (e.g. PLA-CF): replacing it would remove it.
+    log(`fewer changes: filament ${coreF} is not on any surface, so the inside is kept as chosen`);
+    return [[coreF, mesh]];
+  }
+  // Where each filament is printed anyway: surfaces of all objects, plus this part's generated parts.
+  // A sliver doesn't count (MIN_AREA): borders between colors are a little ragged.
+  const cut = new Map([...plugs].map(([f, m]) => [f, layerAreas(m, h, l1 + 1)]));
+  const on = (f, l) => layers.get(f)?.[l] > 0 || cut.get(f)?.[l] > MIN_AREA;
+  const need = new Uint8Array(l1 + 1);
+  if (fixed) {
+    for (let l = l0; l <= l1; l++) if (on(coreF, l)) need[l] = 1;
+    for (let t = 0; t < fil.length; t++) {
+      if (fil[t] !== coreF) continue;
+      const z = [tris[t * 9 + 2], tris[t * 9 + 5], tris[t * 9 + 8]];
+      for (let l = layerOf(Math.min(...z) - keep, h); l <= Math.min(l1, layerOf(Math.max(...z) + keep, h)); l++) need[l] = 1;
+    }
+  }
+  const order = [...new Set([...layers.keys(), ...cut.keys()])].sort((a, b) => bright(b) - bright(a) || a - b);
+  const runs = new Map(); // filament -> [[layer from, layer to)]
+  let saved = 0, changed = 0;
+  for (let l = l0; l <= l1; l++) {
+    const best = need[l] ? null : order.find((f) => on(f, l));
+    if (best == null || best === coreF) continue;
+    changed++;
+    if (!on(coreF, l)) saved++;
+    const r = runs.get(best) ?? runs.set(best, []).get(best);
+    if (r.length && r[r.length - 1][1] === l) r[r.length - 1][1] = l + 1;
+    else r.push([l, l + 1]);
+  }
+  if (!runs.size) {
+    log(`fewer changes: filament ${coreF} stays the inside in every layer`);
+    return [[coreF, mesh]];
+  }
+  let rest = toManifold(wasm, mesh.vertices, mesh.faces);
+  const out = [];
+  for (const [f, rs] of [...runs].sort((a, b) => a[0] - b[0])) {
+    const boxes = rs.map(([a, b]) => wasm.Manifold.cube([xy[2] - xy[0] + 2, xy[3] - xy[1] + 2, (b - a) * h + (a === l0 ? 1 : 0) + (b === l1 + 1 ? 1 : 0)], false)
+      .translate([xy[0] - 1, xy[1] - 1, a * h - (a === l0 ? 1 : 0)]));
+    const slab = boxes.length > 1 ? wasm.Manifold.union(boxes) : boxes[0];
+    const piece = rest.intersect(slab), next = rest.subtract(slab);
+    rest.delete();
+    rest = next;
+    if (!piece.isEmpty()) out.push([f, fromManifold(piece)]);
+    log(`fewer changes: inside in filament ${f} for z ${rs.map(([a, b]) => `${(a * h).toFixed(1)}-${(b * h).toFixed(1)}`).join(", ")} mm, ${piece.volume().toFixed(0)} mm³`);
+    piece.delete();
+    if (boxes.length > 1) slab.delete();
+    for (const b of boxes) b.delete();
+  }
+  if (!rest.isEmpty()) out.unshift([coreF, fromManifold(rest)]);
+  rest.delete();
+  log(`fewer changes: inside changed in ${changed} of ${l1 - l0 + 1} layers (${h} mm); about ${saved} filament change${saved === 1 ? "" : "s"} saved`);
+  return out;
+}
+
 // ------------------------------------------------------------------ project
 
 export function selectObjects(proj, name = null) {
@@ -463,8 +595,10 @@ export function selectObjects(proj, name = null) {
  * Returns Map("objId/partId" -> [{name, extruder, vertices, faces}]) in the
  * part's own mesh coordinates.
  */
-export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.45, dmax = 1.6, uniform = null, objectName = null, primer = null, inlay = null, span = new Span() } = {}) {
+export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.45, dmax = 1.6, uniform = null, objectName = null, primer = null, inlay = null, fewer = false, span = new Span() } = {}) {
   const out = new Map();
+  const layerH = proj.layerHeight ?? 0.2;
+  const layers = fewer ? surfaceLayers(proj, layerH) : null;
   out.inlays = []; // [{object, pieces}] when `inlay` is set (see inlay.js)
   const todo = [];
   for (const obj of selectObjects(proj, objectName))
@@ -494,7 +628,10 @@ export function process(wasm, proj, { depthOverrides = new Map(), core = null, v
       for (const f of new Set(fil)) depths.set(f, uniform != null ? uniform : defaultDepth(filamentColor(proj, f), dmin, dmax));
       for (const [f, d] of depthOverrides) depths.set(f, d);
       log(`object '${obj.name}' part '${part.name}': core filament ${coreF}, ${tris.length / 9} sub-triangles`);
-      const res = build(wasm, V, part.mesh.faces, world, fil, depths, coreF, { voxel, primer, span: spans[i] });
+      // Without a chosen core the inside is free: give the body's own color a skin
+      // too (filament 0 = none is the core), then pick the inside per layer below.
+      const free = fewer && core == null;
+      const res = build(wasm, V, part.mesh.faces, world, fil, depths, free ? 0 : coreF, { voxel, primer, span: spans[i] });
       const Winv = invert(W);
       const parts = [];
       const add = (name, extruder, mesh) => {
@@ -506,7 +643,19 @@ export function process(wasm, proj, { depthOverrides = new Map(), core = null, v
         }
         if (mesh) parts.push({ name, extruder, vertices: applyTransform(mesh.vertices, Winv), faces: mesh.faces });
       };
-      if (res.core) add(`${part.name} core`, coreF, res.core);
+      if (res.core && fewer) {
+        const split = splitInside(wasm, res.core, coreF, { fixed: !free, tris: world, fil, keep: depths.get(coreF) ?? dmax, layers, plugs: res.plugs, h: layerH, bright: (f) => luminance(filamentColor(proj, f)) });
+        for (const [f, m] of split) {
+          // One part per filament: an inside piece joins that filament's color part.
+          const plug = res.plugs.get(f);
+          if (!plug) add(`${part.name} core${f === coreF ? "" : ` (filament ${f})`}`, f, m);
+          else {
+            const a = toManifold(wasm, plug.vertices, plug.faces), b = toManifold(wasm, m.vertices, m.faces), u = a.add(b);
+            res.plugs.set(f, fromManifold(u));
+            for (const x of [a, b, u]) x.delete();
+          }
+        }
+      } else if (res.core) add(`${part.name} core`, coreF, res.core);
       for (const f of [...res.plugs.keys()].sort((a, b) => a - b)) add(`${part.name} ${primer && f === primer[0] ? "primer" : `color ${f}`}`, f, res.plugs.get(f));
       pockets?.delete();
       out.set(`${obj.id}/${part.id}`, parts);
