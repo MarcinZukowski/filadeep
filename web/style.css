@@ -103,3 +103,4 @@ button.icon { padding: 4px 6px; display: flex; align-items: center; }
 .qr svg { display: block; width: 100%; height: auto; }
 .qr .hint { color: #555; font-size: 11px; margin-top: 6px; text-align: center; }
 .qr .hint:empty { display: none; }
+.early { color: #e8b44c; border: 1px solid #e8b44c66; border-radius: 10px; padding: 1px 8px; font-size: 12px; }

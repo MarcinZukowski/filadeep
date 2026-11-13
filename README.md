@@ -6,6 +6,9 @@ It runs entirely in the browser; nothing is uploaded.
 
 **Try it: https://marcinzukowski.github.io/filadeep/**
 
+> **Early version.** Please check the results carefully in your slicer's
+> preview before printing.
+
 ## The problem
 
 When you paint a model in the slicer, the slicer decides how deep each color
