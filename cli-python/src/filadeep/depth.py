@@ -40,7 +40,7 @@ def luminance(hex_color: str) -> float:
     return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
 
 
-def default_depth(hex_color: str, dmin: float = 0.45, dmax: float = 1.6) -> float:
+def default_depth(hex_color: str, dmin: float = 0.5, dmax: float = 1.6) -> float:
     """Dark colors are opaque and bleed through light ones: keep them shallow.
     Light colors are translucent and need thickness to cover what's below."""
     return dmin + (dmax - dmin) * luminance(hex_color) ** 0.5
@@ -447,7 +447,7 @@ def process(
     depth_overrides: dict[int, float] | None = None,
     core: int | None = None,
     voxel: float = 0.25,
-    dmin: float = 0.45,
+    dmin: float = 0.5,
     dmax: float = 1.6,
     smooth: float = 0.0,
     uniform: float | None = None,

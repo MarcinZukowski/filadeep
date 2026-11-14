@@ -40,7 +40,7 @@ export function run(wasm, proj, opts = {}) {
     span: spDepth,
     depthOverrides,
     voxel,
-    dmin: opts.dmin ?? 0.45,
+    dmin: opts.dmin ?? 0.5,
     dmax: opts.dmax ?? 1.6,
     objectName: opts.object ?? null,
     core: core ? core.filament : null,

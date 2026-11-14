@@ -59,7 +59,7 @@
       <div class="grid">
         <fieldset class="m-layers">
           <legend data-tip="How deep each painted color goes into the model. Dark colors cover well, so they stay shallow (no bleeding through light colors next to them); light colors are translucent and need more thickness to hide what's behind them. In between, depth follows the color's brightness.">Color depth</legend>
-          <label data-tip="Depth for the darkest colors (black). Other colors get a depth between this and the white value, by brightness.">black <input id="dmin" type="number" step="0.05" min="0.1" value="0.45"> mm</label>
+          <label data-tip="Depth for the darkest colors (black). Other colors get a depth between this and the white value, by brightness.">black <input id="dmin" type="number" step="0.05" min="0.1" value="0.5"> mm</label>
           <label data-tip="Depth for the lightest colors (white).">white <input id="dmax" type="number" step="0.05" min="0.1" value="1.6"> mm</label>
           <label data-tip="Set the depth of specific filaments directly, as slot=mm pairs, e.g. 3=0.4,1=1.5. Wins over the black/white rule.">overrides <input id="depths" type="text" placeholder="3=0.4,1=1.5" size="10"></label>
         </fieldset>

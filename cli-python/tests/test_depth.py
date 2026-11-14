@@ -16,7 +16,7 @@ def top_painted_cube(tmp_path):
 def test_luminance_and_default_depth():
     assert depth.luminance("#000000") == 0
     assert depth.luminance("#FFFFFF") == pytest.approx(1)
-    assert depth.default_depth("#000000") == pytest.approx(0.45)
+    assert depth.default_depth("#000000") == pytest.approx(0.5)
     assert depth.default_depth("#FFFFFF") == pytest.approx(1.6)
 
 

@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("-o", "--out", help="output 3MF (default: <file>-depth.3mf)")
     p.add_argument("--depth", help="per-filament depth overrides in mm, e.g. 3=0.4,1=1.5")
     p.add_argument("--core", type=int, help="filament for the interior (default: the part's filament)")
-    p.add_argument("--min-depth", type=float, default=0.45, help="depth for black (default 0.45)")
+    p.add_argument("--min-depth", type=float, default=0.5, help="depth for black (default 0.5)")
     p.add_argument("--max-depth", type=float, default=1.6, help="depth for white (default 1.6)")
     p.add_argument("--voxel", type=float, default=0.25, help="grid resolution in mm (default 0.25)")
     p.add_argument("--smooth", type=float, default=0.0, help="paint-edge smoothing radius in voxels, e.g. 1 (default 0 = off)")

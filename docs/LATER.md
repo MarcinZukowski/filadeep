@@ -39,7 +39,7 @@ Light kitsune 16h 13m vs 14h 32m; black 27h 13m vs 25h 17m.
 rerun. Probably Bambu; keep an eye on it (bigger meshes?).
 
 ### Not yet verified by a real print
-Is 0.45 mm of black enough to cover? Is 1.5 mm of light green enough over a blue
+Is 0.5 mm of black enough to cover? Is 1.5 mm of light green enough over a blue
 core? A small test piece (cut section of the head with eyes + a swirl) would answer
 this and calibrate default depths.
 

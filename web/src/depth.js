@@ -25,7 +25,7 @@ export function luminance(hex) {
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
-export const defaultDepth = (hex, dmin = 0.45, dmax = 1.6) => dmin + (dmax - dmin) * luminance(hex) ** 0.5;
+export const defaultDepth = (hex, dmin = 0.5, dmax = 1.6) => dmin + (dmax - dmin) * luminance(hex) ** 0.5;
 
 // ------------------------------------------------------------------ helpers
 
@@ -595,7 +595,7 @@ export function selectObjects(proj, name = null) {
  * Returns Map("objId/partId" -> [{name, extruder, vertices, faces}]) in the
  * part's own mesh coordinates.
  */
-export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.45, dmax = 1.6, uniform = null, objectName = null, primer = null, inlay = null, fewer = false, span = new Span() } = {}) {
+export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.5, dmax = 1.6, uniform = null, objectName = null, primer = null, inlay = null, fewer = false, span = new Span() } = {}) {
   const out = new Map();
   const layerH = proj.layerHeight ?? 0.2;
   const layers = fewer ? surfaceLayers(proj, layerH) : null;
