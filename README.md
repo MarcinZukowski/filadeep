@@ -159,6 +159,20 @@ copies the app and the few library files it needs (about 6 MB) into a folder you
 can upload. It must be served over http(s); opening `index.html` from disk does
 not work.
 
+## Privacy
+
+Models are processed in your browser and never leave it.
+
+The public site counts visits and a few actions (model opened, run started,
+finished or failed, file saved) with [Umami](https://umami.is/): anonymous, no
+cookies. It does not send file names, model addresses, options, or anything
+else from the part of the address after `#`. For your own model only "file" or
+"url" is recorded; for a demo, its name. Turning on "Do Not Track" in the
+browser switches it off.
+
+A copy you run locally or host yourself counts nothing: the script is loaded
+only on `marcinzukowski.github.io` (see the top of `web/app.js`).
+
 ## Python version
 
 The same pipeline as a command-line tool, which is also where the demo models

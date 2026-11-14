@@ -429,6 +429,33 @@ $("cutReset").onclick = () => {
   syncHash();
 };
 
+// ------------------------------------------------------------------ usage counts
+
+// Anonymous counts of visits and of a few actions, via Umami (no cookies). Only
+// on the public site: a local or self-hosted copy loads and sends nothing.
+// Never sent: the part of the address after "#" (model address, options), file
+// names, or anything about a model. "Do Not Track" in the browser turns it off.
+const STATS_HOST = "marcinzukowski.github.io";
+const statsQueue = [];
+function track(name, data) {
+  if (location.hostname !== STATS_HOST) return;
+  try {
+    if (window.umami) window.umami.track(name, data);
+    else if (statsQueue.length < 20) statsQueue.push([name, data]);
+  } catch {}
+}
+if (location.hostname === STATS_HOST) {
+  const el = document.createElement("script");
+  el.defer = true;
+  el.src = "https://cloud.umami.is/script.js";
+  Object.assign(el.dataset, { websiteId: "c253fb07-cd15-47f5-9971-49e461e125fd", domains: STATS_HOST, excludeHash: "true", excludeSearch: "true", doNotTrack: "true" });
+  el.onload = () => {
+    for (const [name, data] of statsQueue.splice(0)) track(name, data);
+  };
+  document.head.appendChild(el);
+}
+const DEMOS = ["testshapes", "penguin", "frog", "duck"];
+
 // ------------------------------------------------------------------ source
 
 let source = null; // { proj, bytes, name, url }
@@ -598,6 +625,9 @@ async function setSource(bytes, name, url = null) {
     showScale();
     showSource(proj);
     clearResult();
+    // Which demo, or just "file" / "url" for the user's own model.
+    const demo = url && DEMOS.find((d) => url === `models/${d}.3mf`);
+    track("open", { source: demo || (url ? "url" : "file") });
   } catch (e) {
     $("status").textContent = `could not read ${name}: ${e.message}`;
     console.error(e);
@@ -905,6 +935,7 @@ function runJob() {
   if (!source) return;
   stopJob?.();
   syncHash();
+  track("run", { mode });
   $("log").textContent = "";
   $("run").disabled = true;
   $("cancel").hidden = false;
@@ -946,6 +977,7 @@ function runJob() {
       $("log").scrollTop = 1e9;
     } else if (data.type === "done") {
       done();
+      track("run-done");
       result = { bytes: data.bytes, name: source.name.replace(/\.3mf$/i, "") + "-filadeep.3mf" };
       $("save").disabled = false;
       showOutput(data.parts, source.proj);
@@ -954,6 +986,7 @@ function runJob() {
       $("status").textContent = `done in ${data.seconds.toFixed(1)} s · ${(data.bytes.length / 1e6).toFixed(1)} MB · output ${dims(outBox)}, ${data.parts.reduce((n, q) => n + q.faces.length / 3, 0).toLocaleString("en-US")} triangles`;
     } else if (data.type === "error") {
       done();
+      track("run-failed");
       $("status").textContent = "failed (see log)";
       $("log").textContent += data.text + "\n";
       showLog(true);
@@ -985,6 +1018,7 @@ $("cancel").onclick = () => {
 };
 $("save").onclick = () => {
   if (!result) return;
+  track("save");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([result.bytes], { type: "application/vnd.ms-package.3dmanufacturing-3dmodel+xml" }));
   a.download = result.name;
