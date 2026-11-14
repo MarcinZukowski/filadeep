@@ -28,6 +28,10 @@ goes, and it often gets it wrong:
   Painted model, a sliced layer, the same layer with FilaDeep, the print, and
   the same print made with FilaDeep.
 
+  OrcaSlicer has a setting for this,
+  [Maximum width of a segmented region](https://www.orcaslicer.com/wiki/print_settings/multimaterial/multimaterial_settings_advanced#maximum-width-of-segmented-region),
+  but it is one value for all colors. Bambu Studio doesn't offer it.
+
 - **Light details stay too shallow.** On a dark model, a light accent is printed
   only one layer thick. That isn't enough to cover the dark plastic behind it,
   so the accent looks dull.
