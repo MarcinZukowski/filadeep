@@ -5,7 +5,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
-import { load, applyTransform, matmul, partExtruder, filamentColor } from "./src/threemf.js";
+import { load, applyTransform, matmul, objectBox, partExtruder, filamentColor, scaleProject } from "./src/threemf.js";
 import { tessellate } from "./src/paint.js";
 
 const $ = (id) => document.getElementById(id);
@@ -574,16 +574,30 @@ function showSource(proj) {
   if (cam) applyCam(cam);
 }
 
+function clearResult() {
+  $("status").textContent = "";
+  result = null;
+  $("save").disabled = true;
+  $("outLegend").innerHTML = "";
+}
+
 async function setSource(bytes, name, url = null) {
   $("status").textContent = "loading…";
   try {
     const proj = load(new Uint8Array(bytes), name);
     source = { proj, bytes, name, url };
+    // The mm fields of Scale show the largest object.
+    scaleBase = null;
+    for (const obj of proj.objects) {
+      const b = objectBox(obj);
+      if (!b) continue;
+      const size = [b[3] - b[0], b[4] - b[1], b[5] - b[2]];
+      if (!scaleBase || size[0] * size[1] * size[2] > scaleBase.size[0] * scaleBase.size[1] * scaleBase.size[2]) scaleBase = { name: obj.name, size };
+    }
+    scaleProject(proj, scale);
+    showScale();
     showSource(proj);
-    $("status").textContent = "";
-    result = null;
-    $("save").disabled = true;
-    $("outLegend").innerHTML = "";
+    clearResult();
   } catch (e) {
     $("status").textContent = `could not read ${name}: ${e.message}`;
     console.error(e);
@@ -605,12 +619,13 @@ async function loadUrl(url) {
 $("openUrl").onclick = async () => {
   const url = prompt("Web address of a .3mf file (the server must allow CORS):", source?.url ?? "")?.trim();
   if (!url) return;
+  resetScale();
   await loadUrl(url);
   syncHash();
 };
 $("srcFile").onchange = async (e) => {
   const f = e.target.files[0];
-  if (f) await setSource(await f.arrayBuffer(), f.name);
+  if (f) resetScale(), await setSource(await f.arrayBuffer(), f.name);
 };
 document.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("drop"); });
 document.addEventListener("dragleave", () => document.body.classList.remove("drop"));
@@ -618,8 +633,73 @@ document.addEventListener("drop", async (e) => {
   e.preventDefault();
   document.body.classList.remove("drop");
   const f = e.dataTransfer.files[0];
-  if (f) await setSource(await f.arrayBuffer(), f.name);
+  if (f) resetScale(), await setSource(await f.arrayBuffer(), f.name);
 });
+
+// ------------------------------------------------------------------ scale
+
+let scale = [1, 1, 1]; // factors along x, y, z
+let scaleBase = null; // { name, size: [x, y, z] in mm }: the largest object as saved in the file
+const AXES = ["x", "y", "z"];
+const scaleKey = () => scale.map((s) => +(s * 100).toFixed(3)).join(",");
+
+function showScale() {
+  for (const [k, a] of AXES.entries()) {
+    $("sp" + a).value = +(scale[k] * 100).toFixed(2);
+    $("sm" + a).value = scaleBase ? +(scaleBase.size[k] * scale[k]).toFixed(2) : "";
+  }
+  $("sreset").hidden = scale.every((s) => s === 1);
+  $("smTip").dataset.tip = "The resulting size along X, Y and Z, in mm" +
+    (source?.proj.objects.length > 1 && scaleBase ? `: of '${scaleBase.name}', the largest object. The others are scaled by the same percentages.` : ".");
+}
+
+/** Apply `scale` to the loaded model and show it again; the output is cleared. */
+function rescale(keepView = false) {
+  showScale();
+  if (!source) return;
+  const V = THREE.Vector3;
+  const c0 = bounds.getCenter(new V()), r0 = bounds.getSize(new V()).length();
+  const pos = camera.position.clone(), tgt = target.clone(), moved = camSaved != null;
+  scaleProject(source.proj, scale);
+  stopJob?.();
+  clearResult();
+  showSource(source.proj);
+  if (keepView && moved && r0 > 0) {
+    // Same view of the resized model.
+    const k = bounds.getSize(new V()).length() / r0;
+    target.copy(bounds.getCenter(new V())).addScaledVector(tgt.clone().sub(c0), k);
+    camera.position.copy(target).addScaledVector(pos.sub(tgt), k);
+    views.src.controls.update();
+    views.out.controls.update();
+    saveCam();
+    renderAll();
+  }
+}
+
+/** A model the user opens starts at its own size. */
+function resetScale() {
+  scale = [1, 1, 1];
+  $("suni").checked = true;
+}
+
+function editScale(k, f) {
+  if (!(f > 0) || !Number.isFinite(f)) return showScale(); // not a size: put the old value back
+  const r = f / scale[k];
+  scale = $("suni").checked ? scale.map((s) => s * r) : scale.map((s, i) => (i === k ? f : s));
+  scale = scale.map((s) => +s.toFixed(5)); // what the link can hold
+  rescale(true);
+  syncHash();
+}
+for (const [k, a] of AXES.entries()) {
+  $("sp" + a).onchange = (e) => editScale(k, +e.target.value / 100);
+  $("sm" + a).onchange = (e) => (scaleBase ? editScale(k, +e.target.value / scaleBase.size[k]) : showScale());
+}
+$("sreset").onclick = () => {
+  scale = [1, 1, 1];
+  $("suni").checked = true;
+  rescale(true);
+  syncHash();
+};
 
 // ------------------------------------------------------------------ options <-> URL
 
@@ -642,6 +722,7 @@ function readOpts() {
     dmin: num("dmin"), dmax: num("dmax"), voxel: num("voxel"),
     depths: Object.fromEntries($("depths").value.split(",").map((s) => s.trim()).filter(Boolean).map((kv) => kv.split("=").map(Number))),
     object: $("obj").value.trim() || null, core: null, shell: null, inlay: null, fewer: $("fewer").checked,
+    scale: scale.every((s) => s === 1) ? null : scale,
   };
   if (mode === "inlays") {
     // Inlays replace the layer options (a core or shell would bring color changes back or cover the pieces).
@@ -662,6 +743,8 @@ function toHash() {
   const p = new URLSearchParams();
   if (source?.url) p.set("src", source.url);
   for (const [k, id] of Object.entries(FIELDS)) if ($(id).value !== $(id).defaultValue) p.set(k, $(id).value);
+  // Scale in percent: one number, or "x,y,z" when the axes differ.
+  if (!scale.every((s) => s === 1)) p.set("scale", scale.every((s) => s === scale[0]) ? scaleKey().split(",")[0] : scaleKey());
   if (mode === "inlays") {
     p.set("inlay", inlayFilaments()?.join(",") ?? "all");
     if ($("ileft").value !== "paint") p.set("ileft", $("ileft").value);
@@ -716,6 +799,11 @@ function fromHash() {
   if (["paint", "body"].includes(p.get("ileft"))) $("ileft").value = p.get("ileft");
   $("kb").checked = p.get("kb") === "1";
   $("fewer").checked = p.get("fewer") === "1";
+  const sc = (p.get("scale") ?? "100").split(",").map((x) => +x / 100);
+  scale = sc.length === 3 ? sc : [sc[0], sc[0], sc[0]];
+  if (!scale.every((s) => s > 0 && Number.isFinite(s))) scale = [1, 1, 1];
+  $("suni").checked = scale.every((s) => s === scale[0]);
+  showScale();
   pendingCam = p.get("cam");
   if (p.has("cut")) {
     const [lo, hi] = p.get("cut").split(",").map((x) => (x === "" || x == null || Number.isNaN(+x) ? null : +x));
@@ -974,13 +1062,17 @@ async function start() {
 window.addEventListener("hashchange", () => {
   const p = hashParams(), src = p.get("src");
   if (src && src !== source?.url) return start();
+  const was = scaleKey();
   fromHash();
   if (!source) return;
-  setSliceRange(sliceBox, !wantCut); // no cut in the link: show the whole model
-  const cam = pendingCam;
-  pendingCam = camSaved = null;
-  if (cam) applyCam(cam);
-  else frameView("iso");
+  if (scaleKey() !== was) rescale(); // shows the model again, with the link's camera and cut
+  else {
+    setSliceRange(sliceBox, !wantCut); // no cut in the link: show the whole model
+    const cam = pendingCam;
+    pendingCam = camSaved = null;
+    if (cam) applyCam(cam);
+    else frameView("iso");
+  }
   estimate();
   renderAll();
   if (p.get("run") === "1") runJob();

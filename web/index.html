@@ -35,6 +35,13 @@
           <a href="#src=models/duck.3mf&core=3&primer=4" data-tip="A yellow rubber duck with an orange beak and black eyes. Yellow shows whatever is behind it, so this is the clearest primer example.">duck</a></span>
       </div>
       <div id="srcInfo" class="info" data-tip="Objects, triangle count, how many triangles carry paint, the slicer that saved the file, and its number of filament slots."></div>
+      <div class="row scale">
+        <span data-tip="Resize the model before processing. Each object is scaled about the center of its footprint, so it stays in place and on the bed. Depths and thicknesses are not scaled: they stay in mm.">Scale</span>
+        <span class="trio" data-tip="Scale along X, Y and Z, in percent of the size in the file."><input id="spx" type="number" step="any" min="0" value="100" aria-label="scale X, percent"><input id="spy" type="number" step="any" min="0" value="100" aria-label="scale Y, percent"><input id="spz" type="number" step="any" min="0" value="100" aria-label="scale Z, percent"> %</span>
+        <span class="trio" id="smTip" data-tip="The resulting size along X, Y and Z, in mm."><input id="smx" type="number" step="any" min="0" aria-label="size X, mm"><input id="smy" type="number" step="any" min="0" aria-label="size Y, mm"><input id="smz" type="number" step="any" min="0" aria-label="size Z, mm"> mm</span>
+        <label data-tip="Keep the proportions: changing one value changes the other two by the same ratio. Untick to stretch one axis on its own."><input id="suni" type="checkbox" checked> uniform</label>
+        <button id="sreset" class="small" hidden data-tip="Back to the size in the file.">reset</button>
+      </div>
       <div id="srcLegend" class="legend"></div>
     </div>
     <div class="view" data-tip="Drag to rotate, right-drag to pan, scroll to zoom. Both views move together." data-tip-view><canvas id="cvSrc"></canvas><div class="tag">source</div></div>

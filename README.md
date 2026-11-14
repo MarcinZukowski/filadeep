@@ -111,6 +111,9 @@ The page opens with the `testshapes` demo. Pick options, press **RUN**, then
 - **Links:** all options live in the address, and "Copy link" copies it, e.g.
   `#src=models/penguin.3mf&core=3&primer=4&shell=5`. Add `&run=1` to start
   processing on load.
+- **Scale:** under the source info, in percent or in mm per axis, as in the
+  slicer (`scale=150` or `scale=150,100,100` in the link). Each object is
+  scaled about the center of its footprint; depths and thicknesses stay in mm.
 - **Background:** the color picker in the footer changes the background of both
   views (`bg` in the link), e.g. to see a black model.
 - **Layer view:** the sliders on the right edge of both views cut the model

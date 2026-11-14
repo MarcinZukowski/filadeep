@@ -177,6 +177,7 @@ export function load(bytes, name = "model.3mf") {
       transform: parseTransform(attr(im[1], "transform")),
       extruder: +(st.meta.extruder || 1) || 1,
     });
+    objects.at(-1).transform0 = objects.at(-1).transform; // as saved, see scaleProject
   }
 
   let colors = [], types = [], layerHeight = null;
@@ -189,6 +190,43 @@ export function load(bytes, name = "model.3mf") {
     } catch {}
   }
   return { name, files, rootPath, objects, filamentColors: colors, filamentTypes: types, layerHeight, application: app };
+}
+
+/** World-space box of an object's printed parts: [minx, miny, minz, maxx, maxy, maxz], or null. */
+export function objectBox(obj, transform = obj.transform) {
+  const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (const part of obj.parts) {
+    if (part.subtype !== "normal_part") continue;
+    const v = applyTransform(part.mesh.vertices, matmul(part.transform, transform));
+    for (let i = 0; i < v.length; i++) {
+      const k = i % 3;
+      if (v[i] < b[k]) b[k] = v[i];
+      if (v[i] > b[k + 3]) b[k + 3] = v[i];
+    }
+  }
+  return b[0] <= b[3] ? b : null;
+}
+
+/**
+ * Scale every object by [sx, sy, sz] (factors along the plate's axes), about the
+ * center of its own footprint, so it stays where it is and on the bed. Only the
+ * objects' placement changes (written back by write3mf); meshes and paint are
+ * untouched. Always starts from the file's own placement, so it can be repeated.
+ */
+export function scaleProject(proj, scale) {
+  const [sx, sy, sz] = scale;
+  if (![sx, sy, sz].every((s) => s > 0 && Number.isFinite(s))) throw new Error(`bad scale: ${scale}`);
+  for (const obj of proj.objects) {
+    obj.transform = obj.transform0;
+    obj.scaled = sx !== 1 || sy !== 1 || sz !== 1;
+    const b = obj.scaled && objectBox(obj);
+    if (!b) continue;
+    const cx = (b[0] + b[3]) / 2, cy = (b[1] + b[4]) / 2, cz = b[2];
+    const S = identity();
+    (S[0] = sx), (S[5] = sy), (S[10] = sz);
+    (S[12] = cx * (1 - sx)), (S[13] = cy * (1 - sy)), (S[14] = cz * (1 - sz));
+    obj.transform = matmul(obj.transform0, S);
+  }
 }
 
 export const partExtruder = (obj, part) => (part.extruder != null ? part.extruder : obj.extruder);

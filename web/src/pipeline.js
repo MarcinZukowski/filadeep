@@ -5,7 +5,7 @@ import { log, process as depthProcess, selectObjects } from "./depth.js";
 import { Span } from "./progress.js";
 import { arrange } from "./inlay.js";
 import { buildShell } from "./shell.js";
-import { applyTransform, invert, matmul, partExtruder } from "./threemf.js";
+import { applyTransform, invert, matmul, partExtruder, scaleProject } from "./threemf.js";
 import { replaceParts } from "./write3mf.js";
 
 /**
@@ -13,12 +13,17 @@ import { replaceParts } from "./write3mf.js";
  *   depths: {filament: mm} overrides, dmin, dmax, voxel, object,
  *   core: {filament, skin, primer: {filament, thickness}} | null,
  *   shell: {filament, thickness, keepBottom} | null,
+ *   scale: [sx, sy, sz] factors applied to every object first (see scaleProject),
  *   fewer: true to fill the inside with a filament the layer uses anyway where its own is absent,
  *   inlay: {filaments: [n] | null (all painted), depth, clearance, leftover: "paint" | "body"} | null }  (ignored with a shell: it would cover them)
  * Returns { bytes (3MF), parts: [{name, extruder, vertices (world), faces}] }.
  */
 export function run(wasm, proj, opts = {}) {
   const voxel = opts.voxel ?? 0.25;
+  if (opts.scale) {
+    scaleProject(proj, opts.scale);
+    log(`scale: ${opts.scale.map((s) => +(s * 100).toFixed(2)).join(" × ")} %`);
+  }
   const depthOverrides = new Map(Object.entries(opts.depths ?? {}).map(([k, v]) => [+k, +v]));
   const core = opts.core ?? null;
   const shellObjs = opts.shell ? selectObjects(proj, opts.object ?? null) : [];

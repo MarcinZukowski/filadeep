@@ -65,6 +65,18 @@ export function replaceParts(proj, replacements, { level = 6, extra = [] } = {})
   }
   let nextId = maxId + 1;
 
+  // Objects that were scaled: their placement on the plate (build items, in file order).
+  if (proj.objects.some((o) => o.scaled)) {
+    let k = 0;
+    root = root.replace(/<build\b[^>]*>[\s\S]*?<\/build>/, (b) => b.replace(/<item\b[^>]*\/>/g, (item) => {
+      const obj = proj.objects[k++];
+      if (!obj?.scaled) return item;
+      const m = obj.transform;
+      const t = `transform="${[0, 1, 2, 3].flatMap((r) => [0, 1, 2].map((c) => num(m[r * 4 + c]))).join(" ")}"`;
+      return /\stransform="/.test(item) ? item.replace(/transform="[^"]*"/, t) : item.replace(/\s*\/>$/, ` ${t}/>`);
+    }));
+  }
+
   for (const [key, parts] of replacements) {
     const [oid, pid] = key.split("/");
     // ---- root model: one component per new part

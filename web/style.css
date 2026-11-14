@@ -104,3 +104,8 @@ button.icon { padding: 4px 6px; display: flex; align-items: center; }
 .qr .hint { color: #555; font-size: 11px; margin-top: 6px; text-align: center; }
 .qr .hint:empty { display: none; }
 .early { color: #e8b44c; border: 1px solid #e8b44c66; border-radius: 10px; padding: 1px 8px; font-size: 12px; }
+.scale .trio { display: flex; align-items: center; gap: 3px; }
+.scale label { display: flex; align-items: center; gap: 4px; }
+/* Room for 123.45; no spinner arrows, which would cover the last digits. */
+.scale input[type=number] { width: 66px; appearance: textfield; -moz-appearance: textfield; }
+.scale input[type=number]::-webkit-inner-spin-button, .scale input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

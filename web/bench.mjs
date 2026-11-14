@@ -1,6 +1,6 @@
 // Run the JS port in Node and time each step.
 //   node bench.mjs in.3mf out.3mf [--core N --skin S [--primer N --primer-thickness T]]
-//                                 [--shell N --thickness T] [--depth 3=0.4,1=1.5] [--object NAME] [--fewer 1]
+//                                 [--shell N --thickness T] [--depth 3=0.4,1=1.5] [--object NAME] [--fewer 1] [--scale 150 | 150,100,100]  (percent)
 //                                 [--inlay 1,4|all --inlay-depth 1.5 --clearance 0.1 --leftover paint|body]
 import { readFileSync, writeFileSync } from "node:fs";
 import Module from "manifold-3d";
@@ -20,6 +20,10 @@ log(`loaded ${proj.objects.length} objects`);
 const opts = { object: a.object, voxel: a.voxel ? +a.voxel : undefined, depths: Object.fromEntries((a.depth ?? "").split(",").filter(Boolean).map((kv) => kv.split("="))) };
 if (a.core) opts.core = { filament: +a.core, skin: +(a.skin ?? 1.2), primer: a.primer ? { filament: +a.primer, thickness: +(a["primer-thickness"] ?? 0.8) } : null };
 if (a.inlay) opts.inlay = { filaments: a.inlay === "all" ? null : a.inlay.split(",").map(Number), leftover: a.leftover ?? "paint", depth: +(a["inlay-depth"] ?? 1.5), clearance: +(a.clearance ?? 0.1) };
+if (a.scale) {
+  const s = a.scale.split(",").map((x) => +x / 100);
+  opts.scale = s.length === 3 ? s : [s[0], s[0], s[0]];
+}
 if (a.fewer) opts.fewer = a.fewer !== "0";
 if (a.shell) opts.shell = { filament: +a.shell, thickness: +(a.thickness ?? 1.0) };
 const { bytes } = run(wasm, proj, opts);
