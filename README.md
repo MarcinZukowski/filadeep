@@ -15,10 +15,18 @@ When you paint a model in the slicer, the slicer decides how deep each color
 goes, and it often gets it wrong:
 
 - **Dark details go too deep.** On a model in light or translucent colors, a
-  dark detail such as an eye is sliced far into the body. The dark plastic then
-  shows through the light plastic around it.
+  dark detail such as a spot or an eye is sliced far into the body. The dark
+  plastic then shows through the light plastic around it, and the detail comes
+  out ragged.
 
-  <a href="img/Deep%20plastic.png"><img src="img/Deep%20plastic.png" width="160" alt="Sliced layer: the black eyes reach deep into the light green head"></a>
+  <a href="img/frog-paint.jpg"><img src="img/frog-paint.jpg" width="150" alt="Painted frog: black spots with light-blue dots on a light green back"></a>
+  <a href="img/frog-sliced.jpg"><img src="img/frog-sliced.jpg" width="150" alt="Sliced layer: the black spots reach deep into the green body"></a>
+  <a href="img/frog-sliced-filadeep.jpg"><img src="img/frog-sliced-filadeep.jpg" width="150" alt="The same layer sliced after FilaDeep: the black stays near the surface"></a>
+  <a href="img/photos/frog-original.jpg"><img src="img/photos/frog-original.jpg" width="150" alt="Photo of the print: the spots are ragged and the black shows through the green"></a>
+  <a href="img/photos/frog-filadeep.jpg"><img src="img/photos/frog-filadeep.jpg" width="150" alt="Photo of the print made with FilaDeep: clean round spots"></a>
+
+  Painted model, a sliced layer, the same layer with FilaDeep, the print, and
+  the same print made with FilaDeep.
 
 - **Light details stay too shallow.** On a dark model, a light accent is printed
   only one layer thick. That isn't enough to cover the dark plastic behind it,
