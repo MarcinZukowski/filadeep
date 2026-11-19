@@ -39,6 +39,7 @@ export function run(wasm, proj, opts = {}) {
     fewer: !!opts.fewer,
     span: spDepth,
     depthOverrides,
+    weights: opts.weights ? new Map(Object.entries(opts.weights).map(([k, v]) => [+k, +v])) : null,
     voxel,
     dmin: opts.dmin ?? 0.5,
     dmax: opts.dmax ?? 1.6,

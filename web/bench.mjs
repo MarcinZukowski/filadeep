@@ -24,6 +24,7 @@ if (a.scale) {
   const s = a.scale.split(",").map((x) => +x / 100);
   opts.scale = s.length === 3 ? s : [s[0], s[0], s[0]];
 }
+if (a.weights) opts.weights = Object.fromEntries(a.weights.split(",").filter(Boolean).map((kv) => kv.split("=")));
 if (a.fewer) opts.fewer = a.fewer !== "0";
 if (a.shell) opts.shell = { filament: +a.shell, thickness: +(a.thickness ?? 1.0) };
 const { bytes } = run(wasm, proj, opts);

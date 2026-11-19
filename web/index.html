@@ -63,6 +63,7 @@
           <label data-tip="Depth for the darkest colors (black). Other colors get a depth between this and the white value, by brightness.">black <input id="dmin" type="number" step="0.05" min="0.1" value="0.5"> mm</label>
           <label data-tip="Depth for the lightest colors (white).">white <input id="dmax" type="number" step="0.05" min="0.1" value="1.6"> mm</label>
           <label data-tip="Set the depth of specific filaments directly, as slot=mm pairs, e.g. 3=0.4,1=1.5. Wins over the black/white rule.">overrides <input id="depths" type="text" placeholder="3=0.4,1=1.5" size="10"></label>
+          <label data-tip="Experimental. Where two colors meet inside the model, a color with a higher weight reaches further behind the other, as slot=weight pairs, e.g. 2=3. Every color still keeps its minimum depth (the depth for black) at the border. Default weight is 1.">weights <input id="weights" type="text" placeholder="2=3" size="6"></label>
         </fieldset>
         <fieldset class="m-layers">
           <legend data-tip="Fill the inside with a separate filament (e.g. strong or cheap PLA-CF) and keep the paint as a skin of fixed thickness around it."><label><input id="coreOn" type="checkbox"> Core (#1)</label></legend>

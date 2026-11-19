@@ -278,8 +278,52 @@ export function isoManifold(wasm, evalBlock, lo, voxel, shape, blocks, block, to
 // ------------------------------------------------------------------- driver
 
 const ZFLAT = 8;
-const CAP = 0.7; // |normal z| above which a face is a cap (within about 45 degrees of level)
+const SPECK = 0.6; // paint narrower than about twice this many voxels is a speck (see despeckle)
 const MIN_AREA = 0.5; // mm² of a filament's cross-section for it to count as used in a layer
+
+/**
+ * Give specks of paint to the color around them. A speck is paint narrower than
+ * about 2 r, e.g. the jagged end of a painted line or a few stray triangles in a
+ * crease: too narrow to print, but each would still claim everything nearest to
+ * it, a wedge that widens into the model. A sample is part of a speck when no
+ * sample of its color lies r or more inside that color (away from other colors).
+ */
+function despeckle(samples, r) {
+  if (samples.size < 2) return samples;
+  const trees = new Map([...samples].map(([l, s]) => [l, new KDTree(s)]));
+  const other = (l, x, y, z, ub) => {
+    let best = Infinity, who = l;
+    for (const [o, t] of trees) {
+      if (o === l) continue;
+      const d = t.query(x, y, z, Math.min(ub, best));
+      if (d < best) (best = d), (who = o);
+    }
+    return [best, who];
+  };
+  // Samples well inside their color.
+  const inner = new Map();
+  for (const [l, s] of samples) {
+    const keep = [];
+    for (let i = 0; i < s.length; i += 3) if (other(l, s[i], s[i + 1], s[i + 2], r)[0] === Infinity) keep.push(s[i], s[i + 1], s[i + 2]);
+    inner.set(l, keep.length ? new KDTree(Float64Array.from(keep)) : null);
+  }
+  const out = new Map([...samples.keys()].map((l) => [l, []]));
+  let moved = 0;
+  for (const [l, s] of samples) {
+    const tin = inner.get(l);
+    for (let i = 0; i < s.length; i += 3) {
+      const x = s[i], y = s[i + 1], z = s[i + 2];
+      let to = l;
+      if (!tin || tin.query(x, y, z, 2.5 * r) === Infinity) {
+        const [d, who] = other(l, x, y, z, 4 * r);
+        if (d < Infinity) (to = who), moved++;
+      }
+      out.get(to).push(x, y, z);
+    }
+  }
+  if (moved) log(`paint specks: ${moved} samples given to the color around them`);
+  return new Map([...out].filter(([, a]) => a.length).map(([l, a]) => [l, Float64Array.from(a)]));
+}
 
 /**
  * Split a solid into per-filament volumes. verts/faces: world mm. subTris/subFil:
@@ -287,43 +331,37 @@ const MIN_AREA = 0.5; // mm² of a filament's cross-section for it to count as u
  * Returns { core: {vertices, faces}|null, plugs: Map(filament -> {vertices, faces}) }.
  */
 export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
-  { voxel = 0.25, block = 24, simplify = 0.3, overlap = 1.0, primer = null, span = new Span() } = {}) {
+  { voxel = 0.25, block = 24, simplify = 0.3, overlap = 1.0, primer = null, weights = null, keep = 0.5, span = new Span() } = {}) {
   const { Manifold } = wasm;
+  // Weights (filament -> number, 1 when absent): where two colors compete, distance
+  // beyond the first `keep` mm counts 1/weight, so a heavier color reaches further
+  // behind a lighter one (level distances only, see treesFlat). Within `keep` of a surface the plain nearest rule holds,
+  // so every color keeps its skin at a border.
+  const wOf = (l) => weights?.get(l) ?? 1;
+  // The pull ends at the color's own depth `far`: further in, plain distance again.
+  const eff = (dist, w, far) => (w === 1 || dist <= keep || dist > far ? dist : keep + (dist - keep) / w);
   // Rough cost model: prep (samples, trees) ~12%, color shells ~80% (primer
   // shells as much again), core + conversion ~8%.
   const [spPrep, spShells, spCore] = span.split([12, 80, 8]);
   spPrep.at(0, "sampling the painted surface");
   const body = toManifold(wasm, verts, faces);
   log(`body: ${body.numTri()} tris, volume ${body.volume().toFixed(0)} mm³`);
-  // Sampled per filament and kind of surface: walls (0) and caps (1: faces that
-  // point mostly up or down), which are compared differently (see makeShell).
-  const kinds = Int32Array.from(subFil, (f, t) => {
-    const o = 9 * t, e = (a, b) => subTris[o + a] - subTris[o + b];
-    const nx = e(4, 1) * e(8, 2) - e(5, 2) * e(7, 1), ny = e(5, 2) * e(6, 0) - e(3, 0) * e(8, 2), nz = e(3, 0) * e(7, 1) - e(4, 1) * e(6, 0);
-    return 2 * f + (Math.abs(nz) > CAP * Math.hypot(nx, ny, nz) ? 1 : 0);
-  });
-  const byKind = sampleSurface(subTris, kinds, voxel * 0.4);
-  const samples = new Map();
-  for (const f of new Set(subFil)) {
-    const a = byKind.get(2 * f) ?? new Float64Array(0), b = byKind.get(2 * f + 1) ?? new Float64Array(0);
-    const all = new Float64Array(a.length + b.length);
-    all.set(a);
-    all.set(b, a.length);
-    samples.set(f, all);
-  }
+  const samples = despeckle(sampleSurface(subTris, subFil, voxel * 0.4), SPECK * voxel);
   let ns = 0;
   for (const s of samples.values()) ns += s.length / 3;
   log(`surface samples: ${ns}`);
   spPrep.at(0.4, "building search trees");
   const trees = new Map();
-  // For deciding between colors (see makeShell): wall points with z stretched, cap points as they are.
+  // For deciding between colors (see makeShell): the distance to a color's
+  // surface at about the same height, or straight above or below, whichever is less.
   const treesFlat = new Map();
   for (const [l, s] of samples) {
     trees.set(l, new KDTree(s));
-    const w = byKind.get(2 * l), c = byKind.get(2 * l + 1);
-    if (w) for (let i = 2; i < w.length; i += 3) w[i] *= ZFLAT;
-    const wall = w?.length ? new KDTree(w) : null, cap = c?.length ? new KDTree(c) : null;
-    treesFlat.set(l, (x, y, z, ub) => Math.min(wall ? wall.query(x, y, z * ZFLAT, ub) : Infinity, cap ? cap.query(x, y, z, ub) : Infinity));
+    const level = Float64Array.from(s), plumb = Float64Array.from(s);
+    for (let i = 0; i < s.length; i += 3) (level[i + 2] *= ZFLAT), (plumb[i] *= ZFLAT), (plumb[i + 1] *= ZFLAT);
+    const tl = new KDTree(level), tp = new KDTree(plumb);
+    const w = wOf(l), far = depths.get(l) ?? keep; // weights bend borders behind walls only: under tops and over bottoms they stay plumb
+    treesFlat.set(l, (x, y, z, ub) => Math.min(eff(tl.query(x, y, z * ZFLAT, ub), w, far), tp.query(x * ZFLAT, y * ZFLAT, z, ub)));
   }
   log(`trees built for ${trees.size} filaments`);
 
@@ -345,11 +383,13 @@ export function build(wasm, verts, faces, subTris, subFil, depths, coreFilament,
     spMask.at(0, `${what}: narrow band`);
     const earlier = new Set(order.slice(0, k)), later = new Set(order.slice(k + 1));
     const treeF = trees.get(f);
-    // Which color a point belongs to is decided by the nearest surface, but for
-    // walls heights count ZFLAT times: a wall's color then reaches mostly level
-    // into the model. So under a sloping wall the border between two colors runs
-    // level from the paint edge, and a color stays out of layers where it doesn't
-    // show. Caps (tops and bottoms) are measured plainly: their color goes straight down or up.
+    // Which color a point belongs to: the one whose surface is nearest, looking
+    // only level (at the point's own height) and straight up or down. Under a
+    // steep wall the level distance is the shorter one, so the border between two
+    // colors runs level from the paint edge, and a color stays out of layers where
+    // it doesn't show. Under tops and over bottoms the color goes straight in.
+    // This is measured from the surface itself, not from the direction of single
+    // facets, so small relief on a wall doesn't change who owns what is behind it.
     const treeS = treesFlat.get(f);
     const others = [...treesFlat].filter(([l]) => l !== f).map(([l, t]) => [t, earlier.has(l) ? overlap * voxel : later.has(l) ? 0 : restOff]);
     const reach = d + 2 * voxel, margin = d + 3 * voxel;
@@ -595,7 +635,7 @@ export function selectObjects(proj, name = null) {
  * Returns Map("objId/partId" -> [{name, extruder, vertices, faces}]) in the
  * part's own mesh coordinates.
  */
-export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.5, dmax = 1.6, uniform = null, objectName = null, primer = null, inlay = null, fewer = false, span = new Span() } = {}) {
+export function process(wasm, proj, { depthOverrides = new Map(), core = null, voxel = 0.25, dmin = 0.5, dmax = 1.6, uniform = null, objectName = null, primer = null, inlay = null, fewer = false, weights = null, span = new Span() } = {}) {
   const out = new Map();
   const layerH = proj.layerHeight ?? 0.2;
   const layers = fewer ? surfaceLayers(proj, layerH) : null;
@@ -631,7 +671,7 @@ export function process(wasm, proj, { depthOverrides = new Map(), core = null, v
       // Without a chosen core the inside is free: give the body's own color a skin
       // too (filament 0 = none is the core), then pick the inside per layer below.
       const free = fewer && core == null;
-      const res = build(wasm, V, part.mesh.faces, world, fil, depths, free ? 0 : coreF, { voxel, primer, span: spans[i] });
+      const res = build(wasm, V, part.mesh.faces, world, fil, depths, free ? 0 : coreF, { voxel, primer, weights, keep: dmin, span: spans[i] });
       const Winv = invert(W);
       const parts = [];
       const add = (name, extruder, mesh) => {

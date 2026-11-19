@@ -751,6 +751,7 @@ function readOpts() {
   const opts = {
     dmin: num("dmin"), dmax: num("dmax"), voxel: num("voxel"),
     depths: Object.fromEntries($("depths").value.split(",").map((s) => s.trim()).filter(Boolean).map((kv) => kv.split("=").map(Number))),
+    weights: Object.fromEntries($("weights").value.split(",").map((s) => s.trim()).filter(Boolean).map((kv) => kv.split("=").map(Number))),
     object: $("obj").value.trim() || null, core: null, shell: null, inlay: null, fewer: $("fewer").checked,
     scale: scale.every((s) => s === 1) ? null : scale,
   };
@@ -765,7 +766,7 @@ function readOpts() {
   return opts;
 }
 
-const FIELDS = { dmin: "dmin", dmax: "dmax", depths: "depths", voxel: "voxel", obj: "obj", skin: "skin", pt: "pt", st: "st", idepth: "idepth", iclear: "iclear" };
+const FIELDS = { dmin: "dmin", dmax: "dmax", depths: "depths", weights: "weights", voxel: "voxel", obj: "obj", skin: "skin", pt: "pt", st: "st", idepth: "idepth", iclear: "iclear" };
 
 let autoRun = false; // run=1 in the link
 
